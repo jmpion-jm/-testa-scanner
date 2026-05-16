@@ -1,0 +1,15 @@
+# Slack 웹훅 URL 등 민감 정보 포함
+config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# 출력 파일
+*.png
+*.xlsx
+*.log
