@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gsheets": {
+      "command": "python",
+      "args": ["C:\\Users\\user\\.claude\\gsheets_mcp.py"]
+    }
+  }
+}
