@@ -303,6 +303,19 @@ def main():
     print(f'\n스캔 완료: {len(universe)}종목 중 신호 {len(signals)}건'
           + (f' (휴장/데이터없음 {skipped}건 제외)' if skipped else ''))
 
+    # 신호를 파일로 저장 → 다음날 아침 진입 확인에 사용
+    sig_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testa_signals.json')
+    save_data = {
+        'date': datetime.today().strftime('%Y-%m-%d'),
+        'signals': [
+            {k: v for k, v in s.items() if k != 'signal'}
+            for s in signals
+        ]
+    }
+    with open(sig_path, 'w', encoding='utf-8') as f:
+        json.dump(save_data, f, ensure_ascii=False, indent=2)
+    print(f'신호 저장 완료: {sig_path}')
+
     send_slack(signals)
 
 
