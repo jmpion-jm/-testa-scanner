@@ -22,6 +22,7 @@ MA_SHORT       = 5
 MA_MID         = 25
 MA_LONG        = 75
 VOLUME_MULT    = 1.5    # 거래량 급등 기준 (20일 평균 대비)
+MAX_RISK_PCT   = 15.0   # 손절폭 상한 — 15% 초과 신호 제외 (백테스트 검증)
 UNIVERSE_SIZE  = 50     # KOSPI 시총 상위 N종목
 DATA_DAYS      = 200    # 데이터 조회 기간 (75일선 계산 + 여유분)
 
@@ -144,6 +145,11 @@ def check_signal(df: pd.DataFrame) -> dict:
     if dipped and breakout:
         stop_loss  = df['Low'].iloc[-6:-1].min()          # 직전 5봉 저점
         risk_pct   = (curr['Close'] - stop_loss) / curr['Close'] * 100
+
+        # 손절폭 15% 초과 시 제외 (EV 검증 결과: 15% 초과는 승률 0%, EV -22.9%)
+        if risk_pct > MAX_RISK_PCT:
+            return {'signal': False, 'reason': f'손절폭 과다 ({risk_pct:.1f}% > {MAX_RISK_PCT}%)'}
+
         target1    = curr['Close'] * (1 + risk_pct / 100 * 3)   # 손익비 3:1
         return {
             'signal'    : True,
