@@ -1,14 +1,19 @@
 import subprocess, sys, os
 
-python = sys.executable
-script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "slack_alert.py")
+python  = sys.executable
+base    = os.path.dirname(os.path.abspath(__file__))
+alert   = os.path.join(base, "slack_alert.py")
+testa   = os.path.join(base, "testa_scan.py")
 
 tasks = [
-    ("Stock_Weekly_Friday",  f'"{python}" -X utf8 "{script}" weekly', "WEEKLY",  "FRI", "16:00", None),
-    ("Stock_Monthly_28",     f'"{python}" -X utf8 "{script}" auto',   "MONTHLY", None,  "16:10", "28"),
-    ("Stock_Monthly_29",     f'"{python}" -X utf8 "{script}" auto',   "MONTHLY", None,  "16:10", "29"),
-    ("Stock_Monthly_30",     f'"{python}" -X utf8 "{script}" auto',   "MONTHLY", None,  "16:10", "30"),
-    ("Stock_Monthly_31",     f'"{python}" -X utf8 "{script}" auto',   "MONTHLY", None,  "16:10", "31"),
+    # 월봉 MA10 알림 — 매주 금요일 / 월말
+    ("Stock_Weekly_Friday",  f'"{python}" -X utf8 "{alert}" weekly', "WEEKLY",  "FRI", "16:00", None),
+    ("Stock_Monthly_28",     f'"{python}" -X utf8 "{alert}" auto',   "MONTHLY", None,  "16:10", "28"),
+    ("Stock_Monthly_29",     f'"{python}" -X utf8 "{alert}" auto',   "MONTHLY", None,  "16:10", "29"),
+    ("Stock_Monthly_30",     f'"{python}" -X utf8 "{alert}" auto',   "MONTHLY", None,  "16:10", "30"),
+    ("Stock_Monthly_31",     f'"{python}" -X utf8 "{alert}" auto',   "MONTHLY", None,  "16:10", "31"),
+    # 테스타 스캔 — 평일 매일 장 마감 후 (16:00)
+    ("Testa_Daily_Scan",     f'"{python}" -X utf8 "{testa}"',        "WEEKLY",  "MON,TUE,WED,THU,FRI", "16:00", None),
 ]
 
 for name, tr, sc, day, st, md in tasks:

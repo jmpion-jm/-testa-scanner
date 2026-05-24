@@ -17,7 +17,14 @@ except ImportError:
     sys.exit(1)
 
 # ── 설정 ─────────────────────────────────────────────────────
-SLACK_URL      = os.environ.get('SLACK_WEBHOOK_URL', '')   # GitHub Secret
+# 슬랙 URL: config.json 우선, 없으면 환경변수
+_cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+try:
+    with open(_cfg_path, encoding='utf-8') as _f:
+        _cfg = json.load(_f)
+    SLACK_URL = _cfg.get('slack_webhook_url', '')
+except Exception:
+    SLACK_URL = os.environ.get('SLACK_WEBHOOK_URL', '')
 MA_SHORT       = 5
 MA_MID         = 25
 MA_LONG        = 75
