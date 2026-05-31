@@ -20,8 +20,7 @@ jobs:
       - name: 패키지 설치
         run: pip install -r requirements.txt
 
-      - name: config.json 생성
-        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
-
       - name: 아침 진입 확인 실행
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: python -u testa_morning.py
