@@ -24,7 +24,10 @@ except ImportError:
     GSHEET_AVAILABLE = False
 
 # ── 구글시트 설정 ─────────────────────────────────────────────
-GSHEET_CREDS  = r'C:\Users\user\.claude\secret-footing-453908-u2-67fee5c1f2f0.json'
+GSHEET_CREDS  = os.environ.get(
+    'GSHEET_CREDS_PATH',
+    r'C:\Users\user\.claude\secret-footing-453908-u2-67fee5c1f2f0.json'
+)
 GSHEET_ID     = '1Xmj6R332n1IvgA6fJ0c5YcOvO6gR_OeDHYmVuTTIzZE'
 GSHEET_SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly',
                  'https://www.googleapis.com/auth/drive.readonly']
@@ -38,7 +41,8 @@ CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
 with open(CONFIG_PATH, encoding='utf-8') as f:
     CFG = json.load(f)
 
-WEBHOOK_URL  = CFG['slack_webhook_url']
+WEBHOOK_URL         = CFG['slack_webhook_url']
+WEBHOOK_URL_PENSION = CFG.get('slack_webhook_url_pension', '')
 STOCKS       = CFG['stocks']          # {ticker: [name, sector]}
 THEME_ETFS   = CFG['theme_etfs']      # {ticker.KS: [name, theme]}
 SAFE_HAVEN   = CFG['safe_haven_etf']  # 357870.KS
@@ -46,6 +50,11 @@ SAFE_NAME    = CFG['safe_haven_name'] # TIGER CD금리
 MA_PERIOD    = CFG['ma_period']       # 10
 CRASH_PCT    = CFG['alert_thresholds']['crash_alert_pct']   # -15
 ZONE_PCT     = CFG['alert_thresholds']['breakout_zone_pct'] # 5
+
+PENSION_KEYWORDS = ['DC', 'IRP', '연금', '퇴직']
+
+def _is_pension(accounts: list) -> bool:
+    return any(any(k in acc for k in PENSION_KEYWORDS) for acc in accounts)
 
 
 # ── 유틸 ─────────────────────────────────────────────────────
@@ -68,16 +77,41 @@ def fetch(ticker: str, period='3y', interval='1mo') -> pd.DataFrame:
     return df[['Open','High','Low','Close','Volume']].dropna()
 
 
-def send_slack(blocks: list, text: str = "주식 알림"):
-    """Slack Block Kit 메시지 전송"""
-    if WEBHOOK_URL.startswith('여기에'):
+def _is_decline3(df: pd.DataFrame) -> bool:
+    """최근 3개월 연속 월봉 종가 하락 여부 (3개월 연속 하락 경고)"""
+    if len(df) < 3:
+        return False
+    c = df['Close']
+    return bool(float(c.iloc[-1]) < float(c.iloc[-2]) < float(c.iloc[-3]))
+
+
+def _is_death_candle(df: pd.DataFrame) -> bool:
+    """저승사자 캔들: MA10 이탈 직후 출현한 장대 음봉.
+    - 이번달 종가가 MA10 아래(이탈)
+    - 이번달 음봉(시가 > 종가)이며 몸통이 큰(>=8%) 장대봉
+    """
+    if 'Open' not in df.columns or 'MA' not in df.columns or len(df) < 2:
+        return False
+    last = df.iloc[-1]
+    o, c, ma = float(last['Open']), float(last['Close']), float(last['MA'])
+    if any(pd.isna(v) for v in (o, c, ma)) or o <= 0:
+        return False
+    below   = c < ma                       # MA10 이탈
+    bearish = c < o                         # 음봉
+    big     = (o - c) / o * 100 >= 8.0      # 장대(몸통 8% 이상)
+    return bool(below and bearish and big)
+
+
+def send_slack(blocks: list, text: str = "주식 알림", url: str = None):
+    """Slack Block Kit 메시지 전송 (url 미지정 시 기본 webhook 사용)"""
+    target = url or WEBHOOK_URL
+    if not target or target.startswith('여기에'):
         print('[Slack 미설정] config.json의 slack_webhook_url을 입력해주세요.')
-        print('[미리보기]', text)
         return False
 
     payload = json.dumps({'text': text, 'blocks': blocks}).encode('utf-8')
     req = urllib.request.Request(
-        WEBHOOK_URL,
+        target,
         data=payload,
         headers={'Content-Type': 'application/json'}
     )
@@ -192,7 +226,7 @@ def scan_portfolio(holdings: list) -> list:
             if df.empty or len(df) < MA_PERIOD + 2:
                 continue
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
-            df = df[['Close']].dropna()
+            df = df[['Open','High','Low','Close']].dropna()
 
             df['MA'] = df['Close'].rolling(MA_PERIOD).mean()
             latest, prev = df.iloc[-1], df.iloc[-2]
@@ -206,12 +240,14 @@ def scan_portfolio(holdings: list) -> list:
 
             rows.append({
                 **h,
-                'close': round(close, 2),
-                'ma':    round(ma, 2),
-                'pct':   round(pct, 1),
-                'above': above,
-                'fresh': fresh,
-                'broke': broke,
+                'close':    round(close, 2),
+                'ma':       round(ma, 2),
+                'pct':      round(pct, 1),
+                'above':    above,
+                'fresh':    fresh,
+                'broke':    broke,
+                'decline3': _is_decline3(df),
+                'death':    _is_death_candle(df),
             })
         except Exception as e:
             print(f'  [스캔오류] {h["name"]} ({h["ticker"]}): {e}')
@@ -229,7 +265,7 @@ def scan_etfs() -> list:
             if df.empty:
                 df = t.history(period='max', interval='1mo', auto_adjust=True)
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
-            df = df[['Close','Volume']].dropna()
+            df = df[['Open','Close','Volume']].dropna()
             if len(df) < MA_PERIOD + 2:
                 continue
             df['MA'] = df['Close'].rolling(MA_PERIOD).mean()
@@ -247,6 +283,7 @@ def scan_etfs() -> list:
                 close=round(close, 0), ma=round(ma, 0),
                 pct=round(pct, 1), above=above,
                 fresh=fresh, broke=broke,
+                decline3=_is_decline3(df), death=_is_death_candle(df),
             ))
         except:
             pass
@@ -278,6 +315,7 @@ def scan_all() -> list:
                 close=round(close, 2), ma=round(ma, 2),
                 pct=round(pct, 1), above=above,
                 fresh=fresh, broke=broke, vol_r=round(vol_r, 2),
+                decline3=_is_decline3(df), death=_is_death_candle(df),
             ))
         except:
             pass
@@ -321,28 +359,55 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
         blocks.append(_section(f'*{label}*'))
         for r in broke:
             accs = ', '.join(r['accounts'])
+            # 저승사자 캔들: 이탈 직후 장대 음봉 = 매도 이미 늦음, 무조건 청산
+            death = '\n💀 *저승사자 캔들* (이탈 직후 장대 음봉) — 지체 없이 전량 매도' if r.get('death') else ''
             blocks.append(_section(
                 f'`{r["name"]}` ({accs})\n'
                 f'현재가 {r["close"]:,.0f}  /  MA10 {r["ma"]:,.0f}  /  *{r["pct"]:+.1f}%*\n'
                 f'→ {"전량 매도 후 CD금리 대기" if is_monthly else "월말 종가 확인 후 결정"}'
+                + death
             ))
 
-    # 신규 돌파 (재진입 신호)
-    fresh = [r for r in port_rows if r['fresh']]
-    if fresh:
-        label = '★ 추가매수 검토 — MA10 재돌파' if is_monthly else '★ MA10 돌파 (월말 확정 후 검토)'
-        blocks.append(_section(f'*{label}*'))
-        for r in fresh:
+    # 저승사자 캔들이 떴으나 위 broke에 안 잡힌 경우(이미 이전에 이탈)도 별도 경고
+    death_only = [r for r in port_rows if r.get('death') and not r['broke']]
+    if death_only:
+        blocks.append(_section('*💀 저승사자 캔들 — MA10 아래 장대 음봉 (즉시 정리)*'))
+        for r in death_only:
             accs = ', '.join(r['accounts'])
-            blocks.append(_section(
-                f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*'
-            ))
+            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*  → 전량 매도'))
+
+    # 신규 돌파 — 지지권(+5% 이내)만 추가매수 적극 검토 / 추세권(+5~15%) 보유 / 고점권(+15%초과) 금지
+    fresh_dip   = [r for r in port_rows if r['fresh'] and r['pct'] <= ZONE_PCT]
+    fresh_trend = [r for r in port_rows if r['fresh'] and ZONE_PCT < r['pct'] <= 15]
+    fresh_high  = [r for r in port_rows if r['fresh'] and r['pct'] > 15]
+
+    if fresh_dip:
+        label = '★ 추가매수 검토 — MA10 재돌파 (지지권 +5% 이내, 최적 진입)' if is_monthly else '★ MA10 돌파 (월말 확정 후 검토)'
+        blocks.append(_section(f'*{label}*'))
+        for r in fresh_dip:
+            accs = ', '.join(r['accounts'])
+            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*'))
+
+    if fresh_trend:
+        blocks.append(_section('*● 추세권 홀딩 — MA10 돌파 +5~15%, 보유 유지 (신규 진입 주의)*'))
+        for r in fresh_trend:
+            accs = ', '.join(r['accounts'])
+            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*  → 보유 유지'))
+
+    if fresh_high:
+        blocks.append(_section('*△ 고점권 홀딩 — MA10 돌파했으나 +15% 초과, 신규 매수 금지*'))
+        for r in fresh_high:
+            accs = ', '.join(r['accounts'])
+            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*  → 보유 유지만'))
 
     # 이탈 중 (이미 아래)
-    below = [r for r in port_rows if not r['above'] and not r['broke']]
+    below = [r for r in port_rows if not r['above'] and not r['broke'] and not r.get('death')]
     if below:
         blocks.append(_section('*❌ MA10 아래 — 보유 중 주의*'))
-        fields = [f'`{r["name"]}`  *{r["pct"]:+.1f}%*  ({", ".join(r["accounts"])})' for r in below]
+        fields = []
+        for r in below:
+            warn = ' ⚠️3개월연속하락' if r.get('decline3') else ''
+            fields.append(f'`{r["name"]}`  *{r["pct"]:+.1f}%*{warn}  ({", ".join(r["accounts"])})')
         blocks.append(_fields(fields[:10]))
 
     # 정상 홀딩
@@ -351,8 +416,9 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
         blocks.append(_section('*● 홀딩 유지 — MA10 위*'))
         fields = []
         for r in holding:
-            emoji = '▲' if r['pct'] > 10 else ('→' if r['pct'] > 0 else '▽')
-            fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*')
+            emoji = '▲' if r['pct'] > 15 else ('→' if r['pct'] > 0 else '▽')
+            warn  = ' ⚠️3개월연속하락' if r.get('decline3') else ''
+            fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*{warn}')
         blocks.append(_fields(fields[:10]))
 
     # 요약
@@ -545,14 +611,16 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
         blocks.append(_divider())
 
     if trend:
-        blocks.append(_section('*● 보유 홀딩 — 추세 진행 중 (+5~15%)*'))
-        fields = [f'`{r["ticker"]}` {r["name"]}  +{r["pct"]}%' for r in trend]
+        blocks.append(_section('*● 추세권 — 보유 유지 (+5~15%, 신규 진입 주의)*'))
+        fields = [f'`{r["ticker"]}` {r["name"]}  +{r["pct"]}%'
+                  + (' ⚠️3개월연속하락' if r.get('decline3') else '') for r in trend]
         blocks.append(_fields(fields[:10]))
         blocks.append(_divider())
 
     if high:
         blocks.append(_section('*△ 보유 홀딩 / 신규 매수 금지 — 고점권 (+15% 초과)*'))
-        fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*' for r in high]
+        fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*'
+                  + (' ⚠️3개월연속하락' if r.get('decline3') else '') for r in high]
         blocks.append(_fields(fields[:10]))
         blocks.append(_divider())
 
@@ -563,13 +631,16 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     if broke:
         blocks.append(_section('*🚨 즉시 매도 — 이번달 10이평 하향 이탈*'))
         for r in broke:
+            action = '즉시 전량 매도 (예외 없음)'
+            if r.get('death'):
+                action = '💀 저승사자 캔들 — 지체 없이 전량 매도 (이미 늦음)'
             blocks.append(_fields([
                 f'*종목:* `{r["ticker"]}` {r["name"]}',
                 f'*섹터:* {r["sector"]}',
                 f'*현재가:* {r["close"]:,.2f}',
                 f'*10이평:* {r["ma"]:,.2f}',
                 f'*대비:* {r["pct"]}%',
-                f'*조치:* 즉시 매도 (예외 없음)',
+                f'*조치:* {action}',
             ]))
         blocks.append(_divider())
 
@@ -598,7 +669,86 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     if etf_rows is not None:
         blocks.extend(build_etf_section(etf_rows, is_monthly=True))
 
+    # 실행 체크리스트 (월말에만)
+    blocks.extend(build_action_checklist(rows, etf_rows or [], port_rows or []))
+
     return blocks
+
+
+# ── 월말 실행 타임라인 ────────────────────────────────────────
+def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
+    """시간·계좌·행동 3열 타임라인 자동 생성"""
+
+    def is_korean(ticker: str) -> bool:
+        return bool(ticker) and (ticker.isdigit() or ticker.endswith('.KS'))
+
+    # 분류
+    sell_kr  = [r for r in port_rows if r.get('broke') and is_korean(r['ticker'])]
+    sell_us  = [r for r in port_rows if r.get('broke') and not is_korean(r['ticker'])]
+    sell_etf = [r for r in etf_rows  if r.get('broke')]
+    buy_us   = [r for r in rows      if r.get('above') and r.get('pct', 99) <= 10
+                and (r.get('fresh') or r.get('pct', 99) <= 5)]
+    buy_etf  = [r for r in etf_rows  if r.get('fresh')]
+
+    # Testa 신호 읽기 (당일 저장 파일)
+    testa_sigs = []
+    try:
+        sig_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testa_signals.json')
+        with open(sig_path, encoding='utf-8') as f:
+            testa_sigs = json.load(f).get('signals', [])
+    except Exception:
+        pass
+
+    if not any([sell_kr, sell_us, sell_etf, buy_us, buy_etf, testa_sigs]):
+        return []
+
+    # 타임라인 행 구성 (시간, 계좌, 행동)
+    timeline = []
+
+    # 한국 시장 09:00
+    for r in sell_kr:
+        accs = ', '.join(r.get('accounts', [r.get('account', '농협')]))
+        timeline.append(('09:00', accs, f"🔴 {r['name']} 전량 매도  (MA10 이탈)"))
+
+    # 테스타 신호 09:10
+    if testa_sigs:
+        names = ' + '.join(s['name'] for s in testa_sigs)
+        timeline.append(('09:10', '자동알림', f"🔔 {names} 시가 + 수량 확인"))
+        for s in testa_sigs:
+            qty  = s.get('qty', '?')
+            stop = f"{s.get('stop', 0):,}원"
+            timeline.append(('09:10~', '농협',
+                f"🟢 {s['name']} {qty}주 매수  손절 {stop} 지정매도 등록"))
+
+    # 미국 시장 22:30 — 매도 먼저
+    for r in sell_us:
+        accs = ', '.join(r.get('accounts', [r.get('account', '미래에셋')]))
+        timeline.append(('22:30', accs, f"🔴 {r['ticker']} {r['name']} 전량 매도  (MA10 이탈)"))
+
+    # 미국 시장 22:30~ — 매수
+    for r in buy_us[:3]:
+        sig = '신규돌파' if r.get('fresh') else '지지권'
+        timeline.append(('22:30~', '미래에셋',
+            f"🟢 {r['ticker']} {r['name']} 매수  ({sig} {r['pct']:+.1f}%)"))
+
+    # 연금계좌 (시간 무관)
+    for r in sell_etf:
+        timeline.append(('연금계좌', 'DC/IRP/연금', f"🔴 {r['name']} → CD금리 교체"))
+    for r in buy_etf:
+        timeline.append(('연금계좌', 'DC/IRP/연금', f"🟢 {r['name']} 매수  (신규돌파)"))
+
+    # 타임라인 테이블 포맷
+    header = f'{"시간":<9} {"계좌":<12} 행동'
+    sep    = '─' * 60
+    body   = '\n'.join(f'{t:<9} {a:<12} {act}' for t, a, act in timeline)
+    table  = f'```\n{header}\n{sep}\n{body}\n```'
+
+    return [
+        _divider(),
+        _header('📋 이달 실행 타임라인'),
+        _section(table),
+        _section('_⚠️ 매도 먼저 → 매수. 손절가는 진입 즉시 지정매도 등록_'),
+    ]
 
 
 # ── 실행 진입점 ─────────────────────────────────────────────
@@ -620,31 +770,50 @@ def run(mode: str = 'auto'):
     port_rows = scan_portfolio(holdings)
     print(f'보유종목 스캔 완료: {len(port_rows)}종목')
 
+    # 포트폴리오 채널 분리: 연금(DC/IRP/연금) vs 일반계좌
+    port_pension = [r for r in port_rows if _is_pension(r.get('accounts', [r.get('account', '')]))]
+    port_stocks  = [r for r in port_rows if not _is_pension(r.get('accounts', [r.get('account', '')]))]
+
     today = date.today()
     is_friday   = today.weekday() == 4
     is_monthend = is_last_trading_day()
 
     if mode == 'test':
-        print('\n[테스트] 주간 알림 미리보기')
-        _print_blocks(build_weekly_alert(rows, etf_rows, port_rows))
-        print('\n[테스트] 월말 알림 미리보기')
-        _print_blocks(build_monthly_alert(rows, etf_rows, port_rows))
+        print('\n[테스트] 개별종목 주간 알림')
+        _print_blocks(build_weekly_alert(rows, port_rows=port_stocks))
+        print('\n[테스트] 연금계좌 ETF 주간 알림')
+        _print_blocks(build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension))
         return
 
     sent = False
 
     # 월말 알림 우선 (주간보다 중요)
     if mode == 'monthly' or (mode == 'auto' and is_monthend):
-        blocks = build_monthly_alert(rows, etf_rows, port_rows)
         ym = datetime.today().strftime('%Y.%m')
-        ok = send_slack(blocks, text=f'[{ym} 월말] 매매 결정 알림')
-        print(f'월말 매매 결정 알림 전송: {"완료" if ok else "실패"}')
+
+        # ① 김학주교수 채널 — 개별종목
+        blocks = build_monthly_alert(rows, port_rows=port_stocks)
+        ok = send_slack(blocks, text=f'[{ym} 월말] 개별종목 매매 결정', url=WEBHOOK_URL)
+        print(f'개별종목 월말 알림 전송: {"완료" if ok else "실패"}')
+
+        # ② 연금계좌 채널 — ETF
+        if WEBHOOK_URL_PENSION:
+            blocks_p = build_monthly_alert([], etf_rows=etf_rows, port_rows=port_pension)
+            ok2 = send_slack(blocks_p, text=f'[{ym} 월말] 연금계좌 ETF 점검', url=WEBHOOK_URL_PENSION)
+            print(f'연금계좌 월말 알림 전송: {"완료" if ok2 else "실패"}')
         sent = True
 
     if mode == 'weekly' or (mode == 'auto' and is_friday and not sent):
-        blocks = build_weekly_alert(rows, etf_rows, port_rows)
-        ok = send_slack(blocks, text=f'[주간] 모니터링 알림')
-        print(f'주간 모니터링 알림 전송: {"완료" if ok else "실패"}')
+        # ① 김학주교수 채널 — 개별종목
+        blocks = build_weekly_alert(rows, port_rows=port_stocks)
+        ok = send_slack(blocks, text='[주간] 개별종목 모니터링', url=WEBHOOK_URL)
+        print(f'개별종목 주간 알림 전송: {"완료" if ok else "실패"}')
+
+        # ② 연금계좌 채널 — ETF
+        if WEBHOOK_URL_PENSION:
+            blocks_p = build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension)
+            ok2 = send_slack(blocks_p, text='[주간] 연금계좌 ETF 모니터링', url=WEBHOOK_URL_PENSION)
+            print(f'연금계좌 주간 알림 전송: {"완료" if ok2 else "실패"}')
 
 
 def _print_blocks(blocks: list):

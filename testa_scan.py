@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 테스타 매매법 — 한국 주식 일봉 스캔
-KOSPI 시총 상위 50종목 대상
+KOSPI 시총 상위 약 100종목 대상
 조건: 정배열(MA5>MA25>MA75) + 거래량 급등 + 눌림목 돌파
 실행: 매일 장 마감 후 자동 (GitHub Actions) 또는 직접 실행
 """
@@ -22,19 +22,23 @@ _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.jso
 try:
     with open(_cfg_path, encoding='utf-8') as _f:
         _cfg = json.load(_f)
-    SLACK_URL = _cfg.get('slack_webhook_url', '')
+    SLACK_URL    = _cfg.get('slack_webhook_url', '')
+    TESTA_ACCOUNT  = int(_cfg.get('testa_account', 0))
+    TESTA_RISK_PCT = float(_cfg.get('testa_risk_pct', 1.0))
 except Exception:
-    SLACK_URL = os.environ.get('SLACK_WEBHOOK_URL', '')
+    SLACK_URL      = os.environ.get('SLACK_WEBHOOK_URL', '')
+    TESTA_ACCOUNT  = 0
+    TESTA_RISK_PCT = 1.0
 MA_SHORT       = 5
 MA_MID         = 25
 MA_LONG        = 75
 VOLUME_MULT    = 1.5    # 거래량 급등 기준 (20일 평균 대비)
 MAX_RISK_PCT   = 15.0   # 손절폭 상한 — 15% 초과 신호 제외 (백테스트 검증)
-UNIVERSE_SIZE  = 50     # KOSPI 시총 상위 N종목
+UNIVERSE_SIZE  = 100    # KOSPI 시총 상위 N종목
 DATA_DAYS      = 200    # 데이터 조회 기간 (75일선 계산 + 여유분)
 
 
-# ── 유니버스: KOSPI 시총 상위 50 (고정 목록) ─────────────────
+# ── 유니버스: KOSPI 시총 상위 약 100 (고정 목록) ─────────────
 # pykrx API 변경에 영향받지 않도록 직접 지정
 KOSPI_UNIVERSE = [
     ('005930', '삼성전자'),    ('000660', 'SK하이닉스'),
@@ -62,13 +66,37 @@ KOSPI_UNIVERSE = [
     ('326030', 'SK바이오팜'),  ('035720', '카카오'),
     ('097950', 'CJ제일제당'),  ('011170', '롯데케미칼'),
     ('019440', '한국타이어앤테크놀로지'), ('078930', 'GS'),
+    # 51~100
+    ('267250', 'HD현대'),            ('329180', 'HD현대중공업'),
+    ('042660', '한화오션'),          ('079550', 'LIG넥스원'),
+    ('064350', '현대로템'),          ('003490', '대한항공'),
+    ('180640', '한진칼'),            ('034730', 'SK'),
+    ('001040', 'CJ'),                ('000370', '한화'),
+    ('009830', '한화솔루션'),        ('032640', 'LG유플러스'),
+    ('024110', '기업은행'),          ('005830', 'DB손해보험'),
+    ('088350', '한화생명'),          ('000100', '유한양행'),
+    ('128940', '한미약품'),          ('185750', '종근당'),
+    ('006280', '녹십자'),            ('018260', '삼성SDS'),
+    ('004170', '신세계'),            ('139480', '이마트'),
+    ('069960', '현대백화점'),        ('023530', '롯데쇼핑'),
+    ('282330', 'BGF리테일'),         ('007070', 'GS리테일'),
+    ('271560', '오리온'),            ('000080', '하이트진로'),
+    ('084370', '한국금융지주'),      ('036460', '한국가스공사'),
+    ('051600', '한전KPS'),           ('052690', '한전기술'),
+    ('298040', '효성중공업'),        ('002380', 'KCC'),
+    ('011780', '금호석유화학'),      ('011790', 'SKC'),
+    ('010060', 'OCI홀딩스'),         ('042670', 'HD현대인프라코어'),
+    ('021240', '코웨이'),            ('008770', '호텔신라'),
+    ('006360', 'GS건설'),            ('000120', 'CJ대한통운'),
+    ('035250', '강원랜드'),          ('055490', '제일기획'),
+    ('012750', '에스원'),            ('004800', '효성'),
+    ('026960', '동서'),              ('161890', '한국콜마'),
 ]
 
 def get_universe() -> list[tuple[str, str]]:
     """KOSPI 대형주 목록 반환"""
     print(f'유니버스: KOSPI 대형주 {len(KOSPI_UNIVERSE)}종목 (고정)')
     return KOSPI_UNIVERSE
-    return []
 
 
 # ── 데이터 수집 ───────────────────────────────────────────────
@@ -150,7 +178,8 @@ def check_signal(df: pd.DataFrame) -> dict:
     breakout = curr['Close'] > curr['MA5']
 
     if dipped and breakout:
-        stop_loss  = df['Low'].iloc[-6:-1].min()          # 직전 5봉 저점
+        # 직전 2봉 저점: 갭업 이전 저가가 포함되는 5봉 방식 대신 눌림목 구간만 사용
+        stop_loss  = df['Low'].iloc[-3:-1].min()
         risk_pct   = (curr['Close'] - stop_loss) / curr['Close'] * 100
 
         # 손절폭 15% 초과 시 제외 (EV 검증 결과: 15% 초과는 승률 0%, EV -22.9%)
@@ -158,6 +187,16 @@ def check_signal(df: pd.DataFrame) -> dict:
             return {'signal': False, 'reason': f'손절폭 과다 ({risk_pct:.1f}% > {MAX_RISK_PCT}%)'}
 
         target1    = curr['Close'] * (1 + risk_pct / 100 * 3)   # 손익비 3:1
+
+        # 포지션 사이징: 계좌 × 리스크% ÷ 1주당 손실액
+        qty, invest, max_loss = 0, 0, 0
+        if TESTA_ACCOUNT > 0:
+            loss_per_share = float(curr['Close']) - float(stop_loss)
+            allowed_loss   = TESTA_ACCOUNT * TESTA_RISK_PCT / 100
+            qty            = int(allowed_loss / loss_per_share) if loss_per_share > 0 else 0
+            invest         = qty * int(curr['Close'])
+            max_loss       = qty * int(loss_per_share)
+
         return {
             'signal'    : True,
             'entry'     : int(curr['Close']),
@@ -166,6 +205,9 @@ def check_signal(df: pd.DataFrame) -> dict:
             'target'    : int(target1),
             'risk_pct'  : round(risk_pct, 1),
             'reward_pct': round(risk_pct * 3, 1),
+            'qty'       : qty,
+            'invest'    : invest,
+            'max_loss'  : max_loss,
         }
     return {'signal': False, 'reason': '눌림목 조건 미충족'}
 
@@ -204,19 +246,18 @@ def send_slack(signals: list):
             {"type": "divider"},
         ]
         for s in signals:
-            blocks.append({
-                "type": "section",
-                "fields": [
-                    {"type": "mrkdwn",
-                     "text": f"*{s['name']}* (`{s['ticker']}`)"},
-                    {"type": "mrkdwn",
-                     "text": f"진입가  *{s['entry']:,}원*"},
-                    {"type": "mrkdwn",
-                     "text": f"손절가  {s['stop']:,}원  (*-{s['risk_pct']}%*)"},
-                    {"type": "mrkdwn",
-                     "text": f"목표가  {s['target']:,}원  (*+{s['reward_pct']}%*)"},
-                ]
-            })
+            qty_text = (f"매수수량  *{s['qty']}주*  "
+                        f"(투입 {s['invest']//10000}만원 / 손절시 -{s['max_loss']//10000}만원)"
+                        if s.get('qty') else "")
+            fields = [
+                {"type": "mrkdwn", "text": f"*{s['name']}* (`{s['ticker']}`)"},
+                {"type": "mrkdwn", "text": f"진입가  *{s['entry']:,}원*"},
+                {"type": "mrkdwn", "text": f"손절가  {s['stop']:,}원  (*-{s['risk_pct']}%*)"},
+                {"type": "mrkdwn", "text": f"목표가  {s['target']:,}원  (*+{s['reward_pct']}%*)"},
+            ]
+            if qty_text:
+                fields.append({"type": "mrkdwn", "text": qty_text})
+            blocks.append({"type": "section", "fields": fields})
             blocks.append({"type": "divider"})
 
         blocks.append({

@@ -1,0 +1,31 @@
+{
+  "date": "2026-05-30",
+  "signals": [
+    {
+      "entry": 100600,
+      "ma5": 100560,
+      "stop": 95400,
+      "target": 116200,
+      "risk_pct": 5.2,
+      "reward_pct": 15.5,
+      "qty": 21,
+      "invest": 2112600,
+      "max_loss": 109200,
+      "ticker": "017670",
+      "name": "SK텔레콤"
+    },
+    {
+      "entry": 16090,
+      "ma5": 15084,
+      "stop": 13750,
+      "target": 23110,
+      "risk_pct": 14.5,
+      "reward_pct": 43.6,
+      "qty": 47,
+      "invest": 756230,
+      "max_loss": 109980,
+      "ticker": "034220",
+      "name": "LG디스플레이"
+    }
+  ]
+}
