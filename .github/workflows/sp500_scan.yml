@@ -1,0 +1,29 @@
+name: S&P 500 월봉 MA10 스캔 (매월 말일)
+
+on:
+  schedule:
+    - cron: '30 7 28-31 * *'   # 매월 28~31일 UTC 07:30 = KST 16:30
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: config.json 생성
+        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
+
+      - name: S&P 500 스캔 실행
+        run: python -u sp500_scan.py
