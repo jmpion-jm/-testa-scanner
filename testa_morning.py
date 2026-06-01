@@ -24,9 +24,10 @@ ENTRY_TOL = 3.0   # 시가 허용 범위 ±3%
 
 try:
     with open(CFG_FILE, encoding='utf-8') as f:
-        SLACK_URL = json.load(f).get('slack_webhook_url', '')
+        _cfg = json.load(f)
+        SLACK_URL = _cfg.get('slack_webhook_url_testa') or _cfg.get('slack_webhook_url', '')
 except Exception:
-    SLACK_URL = os.environ.get('SLACK_WEBHOOK_URL', '')
+    SLACK_URL = os.environ.get('SLACK_TESTA_WEBHOOK_URL', '')
 
 
 def get_open_price(ticker: str) -> int | None:

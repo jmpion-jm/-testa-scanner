@@ -24,11 +24,11 @@ _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.jso
 try:
     with open(_cfg_path, encoding='utf-8') as _f:
         _cfg = json.load(_f)
-    SLACK_URL    = _cfg.get('slack_webhook_url', '')
+    SLACK_URL    = _cfg.get('slack_webhook_url_testa') or _cfg.get('slack_webhook_url', '')
     TESTA_ACCOUNT  = int(_cfg.get('testa_account', 0))
     TESTA_RISK_PCT = float(_cfg.get('testa_risk_pct', 1.0))
 except Exception:
-    SLACK_URL      = os.environ.get('SLACK_WEBHOOK_URL', '')
+    SLACK_URL      = os.environ.get('SLACK_TESTA_WEBHOOK_URL', '')
     TESTA_ACCOUNT  = 0
     TESTA_RISK_PCT = 1.0
 MA_SHORT       = 5

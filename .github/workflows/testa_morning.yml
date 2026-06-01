@@ -22,5 +22,5 @@ jobs:
 
       - name: 아침 진입 확인 실행
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TESTA_WEBHOOK_URL: ${{ secrets.SLACK_TESTA_WEBHOOK_URL }}
         run: python -u testa_morning.py

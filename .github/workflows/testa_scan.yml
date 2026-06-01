@@ -24,7 +24,7 @@ jobs:
 
       - name: 테스타 스캔 실행
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_TESTA_WEBHOOK_URL: ${{ secrets.SLACK_TESTA_WEBHOOK_URL }}
         run: python -u testa_scan.py
 
       - name: 신호 파일 커밋 (다음날 아침 확인용)
