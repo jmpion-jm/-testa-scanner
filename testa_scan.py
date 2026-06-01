@@ -5,10 +5,12 @@ KOSPI 시총 상위 약 100종목 대상
 조건: 정배열(MA5>MA25>MA75) + 거래량 급등 + 눌림목 돌파
 실행: 매일 장 마감 후 자동 (GitHub Actions) 또는 직접 실행
 """
-import os, sys, json, requests
+import os, sys, io, json, requests
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 try:
     from pykrx import stock as krx
