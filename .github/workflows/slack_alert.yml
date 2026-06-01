@@ -30,4 +30,4 @@ jobs:
       - name: 월봉MA10 알림 실행
         env:
           GSHEET_CREDS_PATH: credentials.json
-        run: python -u slack_alert.py monthly
+        run: python -u slack_alert.py auto

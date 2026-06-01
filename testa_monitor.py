@@ -26,8 +26,11 @@ CHECK_INTERVAL = 10   # 분
 MARKET_OPEN    = (9, 30)
 MARKET_CLOSE   = (15, 30)
 
-with open(CFG_FILE, encoding='utf-8') as f:
-    SLACK_URL = json.load(f).get('slack_webhook_url', '')
+try:
+    with open(CFG_FILE, encoding='utf-8') as f:
+        SLACK_URL = json.load(f).get('slack_webhook_url', '')
+except Exception:
+    SLACK_URL = os.environ.get('SLACK_WEBHOOK_URL', '')
 
 
 def get_current_price(ticker: str) -> int | None:
