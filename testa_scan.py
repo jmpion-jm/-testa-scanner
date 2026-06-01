@@ -296,12 +296,60 @@ def send_slack(signals: list):
         print(f'\nSlack 전송 오류: {e}')
 
 
+# ── 유니버스 티커 자동 검증 ───────────────────────────────────
+def verify_universe() -> list:
+    """KOSPI_UNIVERSE 티커-종목명 불일치 확인. 불일치 목록 반환."""
+    mismatches = []
+    for ticker, name in KOSPI_UNIVERSE:
+        try:
+            actual = krx.get_market_ticker_name(ticker)
+            if actual and actual != name:
+                mismatches.append((ticker, name, actual))
+        except Exception:
+            pass
+    return mismatches
+
+
+def send_slack_verify_alert(mismatches: list):
+    """유니버스 불일치 발견 시 슬랙 경고 전송"""
+    if not SLACK_URL:
+        return
+    lines = '\n'.join(f'• {t}: 코드상 *{e}* → 실제 *{a}*' for t, e, a in mismatches)
+    blocks = [
+        {"type": "header",
+         "text": {"type": "plain_text", "text": "⚠️ KOSPI 유니버스 티커 불일치 감지"}},
+        {"type": "section",
+         "text": {"type": "mrkdwn",
+                  "text": f"*{len(mismatches)}개 종목 코드 확인 필요*\n{lines}"}},
+        {"type": "section",
+         "text": {"type": "mrkdwn",
+                  "text": "_testa_scan.py의 KOSPI_UNIVERSE 목록을 수정해 주세요._"}},
+    ]
+    payload = json.dumps({'text': '유니버스 티커 불일치', 'blocks': blocks}, ensure_ascii=False)
+    try:
+        requests.post(SLACK_URL, data=payload.encode('utf-8'),
+                      headers={'Content-Type': 'application/json'}, timeout=10)
+    except Exception:
+        pass
+
+
 # ── 메인 ─────────────────────────────────────────────────────
 def main():
     print(f'\n{"="*60}')
     print(f'  테스타 한국주식 스캔  {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     print(f'  KOSPI 시총 상위 {UNIVERSE_SIZE}종목 | MA{MA_SHORT}/{MA_MID}/{MA_LONG} | 눌림목 돌파')
     print(f'{"="*60}\n')
+
+    # 유니버스 검증 (불일치 발견 시 슬랙 경고, 스캔은 계속 진행)
+    print('유니버스 티커 검증 중...')
+    mismatches = verify_universe()
+    if mismatches:
+        print(f'  ⚠️  불일치 {len(mismatches)}건 발견 — 슬랙 경고 전송')
+        for t, e, a in mismatches:
+            print(f'    {t}: {e} → 실제={a}')
+        send_slack_verify_alert(mismatches)
+    else:
+        print(f'  ✅ 전체 {len(KOSPI_UNIVERSE)}개 종목 코드 정상')
 
     universe = get_universe()
     if not universe:
