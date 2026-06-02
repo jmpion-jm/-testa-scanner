@@ -751,6 +751,22 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
     ]
 
 
+# ── 미국 신호 저장 (영웅문 관심종목 등록용) ───────────────────
+def _save_us_signals(rows: list):
+    """신규돌파 + 지지권 종목을 us_signals.json 으로 저장"""
+    signals = [
+        {'ticker': r['ticker'], 'name': r['name'], 'pct': r['pct']}
+        for r in rows
+        if r['above'] and (r['fresh'] or r['pct'] <= ZONE_PCT)
+    ]
+    path = os.path.join(BASE_DIR, 'us_signals.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'date': date.today().strftime('%Y-%m-%d'), 'signals': signals},
+                  f, ensure_ascii=False, indent=2)
+    if signals:
+        print(f'미국 신호 저장: {len(signals)}종목 → us_signals.json')
+
+
 # ── 실행 진입점 ─────────────────────────────────────────────
 def run(mode: str = 'auto'):
     """
@@ -762,6 +778,7 @@ def run(mode: str = 'auto'):
     print(f'\n스캔 시작... ({datetime.now().strftime("%Y-%m-%d %H:%M")})')
     rows = scan_all()
     print(f'개별종목 스캔 완료: {len(rows)}종목')
+    _save_us_signals(rows)
     etf_rows = scan_etfs()
     print(f'테마ETF 스캔 완료: {len(etf_rows)}개')
 

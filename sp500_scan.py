@@ -259,6 +259,21 @@ def send_slack(results: list):
 
 
 # ── 메인 ─────────────────────────────────────────────────────
+def save_signals(results: list):
+    """신규돌파 + 지지권 종목을 sp500_signals.json 으로 저장"""
+    from datetime import datetime
+    signals = [
+        {'ticker': r['ticker'], 'name': r['ticker'],
+         'pct': r['pct'], 'priority': r['priority']}
+        for r in results if r['priority'] <= 2
+    ]
+    path = os.path.join(BASE, 'sp500_signals.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'date': datetime.today().strftime('%Y-%m-%d'), 'signals': signals},
+                  f, ensure_ascii=False, indent=2)
+    print(f'신호 저장: {len(signals)}종목 → sp500_signals.json')
+
+
 if __name__ == '__main__':
     from datetime import datetime
     print(f'\nS&P 500 월봉 MA10 스캔  {datetime.now().strftime("%Y-%m-%d %H:%M")}')
@@ -271,4 +286,5 @@ if __name__ == '__main__':
     results = scan_sp500(tickers)
     print_results(results)
     save_csv(results)
+    save_signals(results)
     send_slack(results)

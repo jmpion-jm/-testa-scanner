@@ -247,6 +247,20 @@ def send_slack(results: list):
 
 
 # ── 메인 ─────────────────────────────────────────────────────
+def save_signals(results: list):
+    """신규돌파 + 지지권 종목을 ndx100_signals.json 으로 저장"""
+    signals = [
+        {'ticker': r['ticker'], 'name': r['ticker'],
+         'pct': r['pct'], 'priority': r['priority']}
+        for r in results if r['priority'] <= 2
+    ]
+    path = os.path.join(BASE, 'ndx100_signals.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'date': datetime.today().strftime('%Y-%m-%d'), 'signals': signals},
+                  f, ensure_ascii=False, indent=2)
+    print(f'신호 저장: {len(signals)}종목 → ndx100_signals.json')
+
+
 if __name__ == '__main__':
     print(f'\nNASDAQ 100 월봉 MA10 스캔  {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     print(f'기준: MA{MA_PERIOD} | 추세권 +{ENTRY_LIMIT}% 이내\n')
@@ -258,4 +272,5 @@ if __name__ == '__main__':
     results = scan_ndx100(tickers)
     print_results(results)
     save_csv(results)
+    save_signals(results)
     send_slack(results)
