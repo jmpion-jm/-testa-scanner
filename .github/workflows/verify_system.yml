@@ -1,0 +1,29 @@
+name: 투자 시스템 종합 검증 (매주 월요일)
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'   # 매주 월요일 UTC 08:00 = KST 17:00
+  workflow_dispatch:       # 수동 실행 가능
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: config.json 생성
+        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
+
+      - name: 시스템 검증 실행
+        run: python -u verify_system.py
