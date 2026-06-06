@@ -34,6 +34,19 @@ GSHEET_SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly',
 # 채권·현금은 MA 분석 제외 (B&H 유지)
 EXCLUDE_ASSETS = {'채권', '현금', '예수금'}
 
+# ── 탑다운 글로벌 지수 (성승현 매매법 1원칙) ──────────────────
+GLOBAL_MARKETS = {
+    '🇺🇸 미국': {
+        '나스닥': '^IXIC', 'S&P500': '^GSPC', '다우': '^DJI',
+    },
+    '🏭 제조업국가': {
+        '독일DAX': '^GDAXI', '일본니케이': '^N225', '대만가권': '^TWII',
+    },
+    '🇰🇷 한국': {
+        '코스피': '^KS11', '코스닥': '^KQ11',
+    },
+}
+
 # ── 설정 로드 ────────────────────────────────────────────────
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'config.json')
@@ -100,6 +113,82 @@ def _is_death_candle(df: pd.DataFrame) -> bool:
     bearish = c < o                         # 음봉
     big     = (o - c) / o * 100 >= 8.0      # 장대(몸통 8% 이상)
     return bool(below and bearish and big)
+
+
+def topdown_analysis() -> dict:
+    """글로벌 지수 월봉 MA10 탑다운 분석 (성승현 1원칙)"""
+    results = {}
+    for region, markets in GLOBAL_MARKETS.items():
+        results[region] = {}
+        for name, ticker in markets.items():
+            try:
+                t  = yf.Ticker(ticker)
+                df = t.history(period='2y', interval='1mo', auto_adjust=True)
+                df.index = df.index.tz_localize(None) if df.index.tz else df.index
+                df = df[['Close']].dropna()
+                if len(df) < MA_PERIOD + 2:
+                    results[region][name] = {'error': '데이터부족'}
+                    continue
+                df['MA10'] = df['Close'].rolling(MA_PERIOD).mean()
+                df = df.dropna()
+                latest = df.iloc[-1]
+                close  = float(latest['Close'])
+                ma10   = float(latest['MA10'])
+                results[region][name] = {
+                    'above': close > ma10,
+                    'pct':   round((close - ma10) / ma10 * 100, 1),
+                }
+            except Exception as e:
+                results[region][name] = {'error': str(e)}
+    return results
+
+
+def topdown_regime(td: dict) -> tuple:
+    """(레짐 라벨, 상승 개수, 전체 개수) 반환"""
+    total, bullish = 0, 0
+    for markets in td.values():
+        for data in markets.values():
+            if 'error' not in data:
+                total += 1
+                if data['above']:
+                    bullish += 1
+    if total == 0:
+        return ('⚪ 데이터없음', 0, 0)
+    ratio = bullish / total * 100
+    if ratio >= 70:
+        label = '🟢 강세장'
+    elif ratio >= 50:
+        label = '🟡 혼조장'
+    else:
+        label = '🔴 약세장'
+    return (label, bullish, total)
+
+
+def build_topdown_section(td: dict) -> list:
+    """탑다운 분석 결과 Slack 블록 생성"""
+    regime, bullish, total = topdown_regime(td)
+    ratio  = int(bullish / total * 100) if total else 0
+    lines  = [f'*📊 탑다운 시장 분석 — {regime} ({bullish}/{total}, {ratio}%)*']
+
+    for region, markets in td.items():
+        parts = []
+        for name, data in markets.items():
+            if 'error' in data:
+                parts.append(f'{name}:⚠️')
+            else:
+                icon    = '✅' if data['above'] else '❌'
+                pct_str = f"+{data['pct']:.1f}%" if data['pct'] >= 0 else f"{data['pct']:.1f}%"
+                parts.append(f'{icon}{name}({pct_str})')
+        lines.append(f'{region}: ' + '  '.join(parts))
+
+    if ratio >= 70:
+        lines.append('→ 적극 매수 가능')
+    elif ratio >= 50:
+        lines.append('→ 선별적 접근, 신규 진입 신중')
+    else:
+        lines.append('⚠️ *신규 매수 자제 — 현금 비중 확대 권고*')
+
+    return [_section('\n'.join(lines)), _divider()]
 
 
 def send_slack(blocks: list, text: str = "주식 알림", url: str = None):
@@ -492,16 +581,20 @@ def build_etf_section(etf_rows: list, is_monthly: bool) -> list:
 
 
 # ── 1. 매주 금요일 — 모니터링 알림 ──────────────────────────
-def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None) -> list:
+def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None,
+                       td: dict = None) -> list:
     today_str = datetime.today().strftime('%Y.%m.%d')
+    regime    = topdown_regime(td)[0] if td else '⚪ 미확인'
     blocks = [
-        _header(f'주간 모니터링  {today_str} (금)'),
+        _header(f'주간 모니터링  {today_str} (금)  |  {regime}'),
         _section(
             '*월봉 10이평선 기준 주간 점검*\n'
             '>⚠️ 이 알림은 관찰용입니다. 실제 매매는 *월말 알림* 기준으로만 하세요.'
         ),
         _divider(),
     ]
+    if td:
+        blocks.extend(build_topdown_section(td))
 
     above = [r for r in rows if r['above']]
     below = [r for r in rows if not r['above']]
@@ -567,17 +660,22 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
 
 
 # ── 2. 매달 말일 — 매매 결정 알림 ───────────────────────────
-def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = None) -> list:
+def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = None,
+                        td: dict = None) -> list:
     today_str = datetime.today().strftime('%Y.%m.%d')
     ym = datetime.today().strftime('%Y년 %m월')
+    regime, bullish, total = topdown_regime(td) if td else ('⚪ 미확인', 0, 0)
+    ratio  = int(bullish / total * 100) if total else 0
     blocks = [
-        _header(f'{ym} 월봉 매매 결정  {today_str}'),
+        _header(f'{ym} 월봉 매매 결정  {today_str}  |  {regime}'),
         _section(
             '*월봉 10이평선 종가 확정 — 이달 매매 결정 알림*\n'
             '>✅ 이 알림 기준으로 매수/매도를 결정하세요.'
         ),
         _divider(),
     ]
+    if td:
+        blocks.extend(build_topdown_section(td))
 
     above = [r for r in rows if r['above']]
     below = [r for r in rows if not r['above']]
@@ -587,6 +685,13 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     dip    = [r for r in above if not r['fresh'] and r['pct'] <= ZONE_PCT]
     trend  = [r for r in above if not r['fresh'] and ZONE_PCT < r['pct'] <= 15]
     high   = [r for r in above if r['pct'] > 15]
+
+    # 약세장 경고 배너
+    if ratio < 50 and (fresh or dip):
+        blocks.append(_section(
+            '⚠️ *약세장 주의* — 글로벌 지수 50% 미만 상승추세\n'
+            '신규 매수 신호가 있어도 소량 진입 또는 관망 권고'
+        ))
 
     if fresh:
         blocks.append(_section('*★ 매수 진입 — 이번달 10이평 신규 돌파*'))
@@ -776,6 +881,14 @@ def run(mode: str = 'auto'):
           'test'    → 두 알림 모두 콘솔 출력 (Slack 미전송)
     """
     print(f'\n스캔 시작... ({datetime.now().strftime("%Y-%m-%d %H:%M")})')
+
+    # ── 탑다운 분석 (성승현 1원칙) ──────────────────────────────
+    print('탑다운 글로벌 지수 분석 중...')
+    td = topdown_analysis()
+    regime, bullish, total = topdown_regime(td)
+    ratio = int(bullish / total * 100) if total else 0
+    print(f'탑다운 완료: {regime} ({bullish}/{total}, {ratio}%)')
+
     rows = scan_all()
     print(f'개별종목 스캔 완료: {len(rows)}종목')
     _save_us_signals(rows)
@@ -797,9 +910,9 @@ def run(mode: str = 'auto'):
 
     if mode == 'test':
         print('\n[테스트] 개별종목 주간 알림')
-        _print_blocks(build_weekly_alert(rows, port_rows=port_stocks))
+        _print_blocks(build_weekly_alert(rows, port_rows=port_stocks, td=td))
         print('\n[테스트] 연금계좌 ETF 주간 알림')
-        _print_blocks(build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension))
+        _print_blocks(build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td))
         return
 
     sent = False
@@ -809,26 +922,26 @@ def run(mode: str = 'auto'):
         ym = datetime.today().strftime('%Y.%m')
 
         # ① 김학주교수 채널 — 개별종목
-        blocks = build_monthly_alert(rows, port_rows=port_stocks)
+        blocks = build_monthly_alert(rows, port_rows=port_stocks, td=td)
         ok = send_slack(blocks, text=f'[{ym} 월말] 개별종목 매매 결정', url=WEBHOOK_URL)
         print(f'개별종목 월말 알림 전송: {"완료" if ok else "실패"}')
 
         # ② 연금계좌 채널 — ETF
         if WEBHOOK_URL_PENSION:
-            blocks_p = build_monthly_alert([], etf_rows=etf_rows, port_rows=port_pension)
+            blocks_p = build_monthly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td)
             ok2 = send_slack(blocks_p, text=f'[{ym} 월말] 연금계좌 ETF 점검', url=WEBHOOK_URL_PENSION)
             print(f'연금계좌 월말 알림 전송: {"완료" if ok2 else "실패"}')
         sent = True
 
     if mode == 'weekly' or (mode == 'auto' and is_friday and not sent):
         # ① 김학주교수 채널 — 개별종목
-        blocks = build_weekly_alert(rows, port_rows=port_stocks)
+        blocks = build_weekly_alert(rows, port_rows=port_stocks, td=td)
         ok = send_slack(blocks, text='[주간] 개별종목 모니터링', url=WEBHOOK_URL)
         print(f'개별종목 주간 알림 전송: {"완료" if ok else "실패"}')
 
         # ② 연금계좌 채널 — ETF
         if WEBHOOK_URL_PENSION:
-            blocks_p = build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension)
+            blocks_p = build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td)
             ok2 = send_slack(blocks_p, text='[주간] 연금계좌 ETF 모니터링', url=WEBHOOK_URL_PENSION)
             print(f'연금계좌 주간 알림 전송: {"완료" if ok2 else "실패"}')
 
