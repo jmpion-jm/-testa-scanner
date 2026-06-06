@@ -97,9 +97,6 @@ def scan_sp500(tickers: list) -> list:
             if not above:
                 continue  # MA10 아래 → 스킵
 
-            if pct > 30:
-                continue  # 고점권 너무 높음 → 스킵
-
             # 신규 돌파 여부 (지난달 MA10 아래 → 이번달 위)
             fresh = (float(prev['Close']) < float(prev['MA10'])) and above
 
@@ -107,17 +104,17 @@ def scan_sp500(tickers: list) -> list:
             decline3 = (float(df.iloc[-1]['Close']) < float(df.iloc[-2]['Close']) <
                         float(df.iloc[-3]['Close']))
 
-            # 진입권 분류
-            if fresh and pct <= ENTRY_LIMIT:
-                signal = '★★ 신규돌파'
+            # 백테스트 최적화 결과: 신규돌파는 괴리율 무제한이 최고 성과
+            if fresh:
+                signal = '★★ 신규돌파'   # 괴리율 무제한 — 성승현 원본
                 priority = 1
             elif not fresh and pct <= 5:
-                signal = '★ 지지권'
+                signal = '★ 지지권'       # 정보용 (매수 참고)
                 priority = 2
-            elif not fresh and 5 < pct <= ENTRY_LIMIT:
+            elif not fresh and 5 < pct <= 30:
                 signal = '● 추세권'
                 priority = 3
-            elif 15 < pct <= 30:
+            elif pct > 30:
                 signal = '△ 고점권'
                 priority = 4
             else:

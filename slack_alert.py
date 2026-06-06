@@ -707,11 +707,12 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
         blocks.append(_divider())
 
     if dip:
-        blocks.append(_section(f'*▲ 매수 적극 고려 — 눌림목 (+{ZONE_PCT}% 이내)*'))
+        blocks.append(_section(f'*▲ 눌림목 관찰 — MA10 +{ZONE_PCT}% 이내 (신규돌파 대기)*'))
         for r in dip:
             blocks.append(_section(
                 f'`{r["ticker"]}` *{r["name"]}*  |  '
-                f'{r["close"]:,.2f} / 10이평 {r["ma"]:,.2f}  |  *+{r["pct"]}%*'
+                f'{r["close"]:,.2f} / 10이평 {r["ma"]:,.2f}  |  *+{r["pct"]}%*\n'
+                f'→ 다음달 신규돌파 확인 시 매수 (지지권 자체는 매수 신호 아님)'
             ))
         blocks.append(_divider())
 

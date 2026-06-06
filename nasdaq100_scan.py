@@ -113,20 +113,21 @@ def scan_ndx100(tickers: list) -> list:
             pct   = (close - ma10) / ma10 * 100
             above = close > ma10
 
-            if not above or pct > 30:
+            if not above:
                 continue
 
             fresh    = float(prev['Close']) < float(prev['MA10']) and above
             decline3 = (float(df.iloc[-1]['Close']) < float(df.iloc[-2]['Close']) <
                         float(df.iloc[-3]['Close']))
 
-            if fresh and pct <= ENTRY_LIMIT:
-                signal, priority = '★★ 신규돌파', 1
+            # 백테스트 최적화 결과: 신규돌파는 괴리율 무제한이 최고 성과
+            if fresh:
+                signal, priority = '★★ 신규돌파', 1   # 괴리율 무제한 — 성승현 원본
             elif not fresh and pct <= 5:
-                signal, priority = '★ 지지권', 2
-            elif not fresh and 5 < pct <= ENTRY_LIMIT:
+                signal, priority = '★ 지지권', 2       # 정보용 (매수 참고)
+            elif not fresh and 5 < pct <= 30:
                 signal, priority = '● 추세권', 3
-            elif 15 < pct <= 30:
+            elif pct > 30:
                 signal, priority = '△ 고점권', 4
             else:
                 continue
