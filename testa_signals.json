@@ -1,4 +1,18 @@
 {
-  "date": "2026-06-01",
-  "signals": []
+  "date": "2026-06-04",
+  "signals": [
+    {
+      "entry": 155900,
+      "ma5": 145820,
+      "stop": 138500,
+      "target": 208100,
+      "risk_pct": 11.2,
+      "reward_pct": 33.5,
+      "qty": 6,
+      "invest": 935400,
+      "max_loss": 104400,
+      "ticker": "011790",
+      "name": "SKC"
+    }
+  ]
 }
