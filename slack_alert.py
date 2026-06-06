@@ -90,6 +90,44 @@ def fetch(ticker: str, period='3y', interval='1mo') -> pd.DataFrame:
     return df[['Open','High','Low','Close','Volume']].dropna()
 
 
+def _check_nollim_buyable(df: pd.DataFrame, pct: float) -> dict:
+    """성승현 눌림목 추매 조건 판별
+    조건①: 현재가가 MA10 +5% 이내 (눌림목 구간)
+    조건②: 최근 12개월 내 월봉 거래량 3배↑ 급등월 존재 (돌반지 1차 신호)
+    조건③: 현재 눌림목 구간 거래량이 낮음 (세력 이탈 없음)
+    세 조건 모두 충족 시 → 추매 신호
+    """
+    if len(df) < 14 or pct > 5 or pct < 0:
+        return {'buyable': False, 'reason': '눌림목 구간 아님'}
+
+    avg_vol     = float(df['Volume'].iloc[-13:-1].mean()) or 1
+    surge_max   = float(df['Volume'].iloc[-13:-1].max())
+    surge_ratio = surge_max / avg_vol
+
+    # 최근 12개월 내 3배 이상 거래량 급등월 존재 여부
+    has_surge = surge_ratio >= 3.0
+
+    # 현재월 거래량 비율 (눌림목에선 낮아야 세력 이탈 없음)
+    curr_vol_r = float(df['Volume'].iloc[-1]) / avg_vol
+
+    # 눌림목 거래량 기준: 평균 1.5배 미만 = 세력 여전히 보유
+    pullback_quiet = curr_vol_r < 1.5
+
+    buyable = has_surge and pullback_quiet
+    return {
+        'buyable':       buyable,
+        'surge_ratio':   round(surge_ratio, 1),
+        'curr_vol_r':    round(curr_vol_r, 1),
+        'has_surge':     has_surge,
+        'pullback_quiet': pullback_quiet,
+        'reason': (
+            '✅ 추매 조건 충족' if buyable else
+            '❌ 거래량 급등 이력 없음' if not has_surge else
+            '⚠️ 눌림목 거래량 과다 (세력 이탈 의심)'
+        ),
+    }
+
+
 def _is_decline3(df: pd.DataFrame) -> bool:
     """최근 3개월 연속 월봉 종가 하락 여부 (3개월 연속 하락 경고)"""
     if len(df) < 3:
@@ -399,12 +437,16 @@ def scan_all() -> list:
             vol_avg = float(df['Volume'].iloc[-6:].mean()) or 1
             vol_r   = float(latest['Volume']) / vol_avg
 
+            # 성승현 눌림목 추매 조건 판별
+            nollim = _check_nollim_buyable(df, pct)
+
             rows.append(dict(
                 ticker=ticker, name=name, sector=sector,
                 close=round(close, 2), ma=round(ma, 2),
                 pct=round(pct, 1), above=above,
                 fresh=fresh, broke=broke, vol_r=round(vol_r, 2),
                 decline3=_is_decline3(df), death=_is_death_candle(df),
+                nollim=nollim,
             ))
         except:
             pass
@@ -631,13 +673,27 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
             ))
         blocks.append(_divider())
 
-    # 눌림목 후보 (이평 위 +5% 이내)
+    # 눌림목 — 거래량 조건별 분류
     dips = [r for r in above if not r['fresh'] and 0 < r['pct'] <= ZONE_PCT]
-    if dips:
-        blocks.append(_section(f'*▲ 눌림목 후보* (10이평 +{ZONE_PCT}% 이내) — 월말 확인 후 진입 고려'))
-        fields = []
-        for r in dips:
-            fields.append(f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*')
+    nollim_buy   = [r for r in dips if r.get('nollim', {}).get('buyable')]
+    nollim_watch = [r for r in dips if not r.get('nollim', {}).get('buyable')]
+
+    if nollim_buy:
+        blocks.append(_section(
+            f'*🟢 눌림목 추매 후보* — 거래량 조건 충족 (월말 종가 확인 후 진입)\n'
+            f'>과거 월봉 3배↑ + 현재 눌림 거래량 낮음 = 성승현 돌반지 조건'
+        ))
+        fields = [
+            f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*  '
+            f'(과거급등 {r.get("nollim",{}).get("surge_ratio",0):.1f}배)'
+            for r in nollim_buy
+        ]
+        blocks.append(_fields(fields[:10]))
+        blocks.append(_divider())
+
+    if nollim_watch:
+        blocks.append(_section(f'*▲ 눌림목 관찰* — 거래량 조건 미충족 (대기)'))
+        fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*' for r in nollim_watch]
         blocks.append(_fields(fields[:10]))
         blocks.append(_divider())
 
@@ -707,14 +763,35 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
         blocks.append(_divider())
 
     if dip:
-        blocks.append(_section(f'*▲ 눌림목 관찰 — MA10 +{ZONE_PCT}% 이내 (신규돌파 대기)*'))
-        for r in dip:
+        # 거래량 조건 충족 = 추매 신호 / 미충족 = 관찰
+        nollim_buy = [r for r in dip if r.get('nollim', {}).get('buyable')]
+        nollim_watch = [r for r in dip if not r.get('nollim', {}).get('buyable')]
+
+        if nollim_buy:
             blocks.append(_section(
-                f'`{r["ticker"]}` *{r["name"]}*  |  '
-                f'{r["close"]:,.2f} / 10이평 {r["ma"]:,.2f}  |  *+{r["pct"]}%*\n'
-                f'→ 다음달 신규돌파 확인 시 매수 (지지권 자체는 매수 신호 아님)'
+                f'*🟢 눌림목 추매 신호 — MA10 +{ZONE_PCT}% 이내 + 거래량 조건 충족*\n'
+                f'>성승현 돌반지: 과거 거래량 3배↑ 확인 + 현재 눌림목 거래량 낮음'
             ))
-        blocks.append(_divider())
+            for r in nollim_buy:
+                nl = r.get('nollim', {})
+                blocks.append(_fields([
+                    f'*종목:* `{r["ticker"]}` {r["name"]}',
+                    f'*섹터:* {r["sector"]}',
+                    f'*현재가:* {r["close"]:,.2f}',
+                    f'*MA10:* {r["ma"]:,.2f}  (*+{r["pct"]}%*)',
+                    f'*과거 최대 거래량:* {nl.get("surge_ratio",0):.1f}배↑',
+                    f'*현재 눌림목 거래량:* {nl.get("curr_vol_r",0):.1f}배 (조용)',
+                ]))
+            blocks.append(_divider())
+
+        if nollim_watch:
+            blocks.append(_section(f'*▲ 눌림목 관찰 — 거래량 조건 미충족 (대기)*'))
+            for r in nollim_watch:
+                nl = r.get('nollim', {})
+                blocks.append(_section(
+                    f'`{r["ticker"]}` *{r["name"]}*  +{r["pct"]}%  |  {nl.get("reason","")}'
+                ))
+            blocks.append(_divider())
 
     if trend:
         blocks.append(_section('*● 추세권 — 보유 유지 (+5~15%, 신규 진입 주의)*'))
