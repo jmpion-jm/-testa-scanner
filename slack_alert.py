@@ -149,7 +149,7 @@ def _is_death_candle(df: pd.DataFrame) -> bool:
         return False
     below   = c < ma                       # MA10 이탈
     bearish = c < o                         # 음봉
-    big     = (o - c) / o * 100 >= 8.0      # 장대(몸통 8% 이상)
+    big     = (o - c) / o * 100 >= 4.0      # 장대(몸통 4% 이상) — 성승현 원본
     return bool(below and bearish and big)
 
 
@@ -353,7 +353,7 @@ def scan_portfolio(holdings: list) -> list:
             if df.empty or len(df) < MA_PERIOD + 2:
                 continue
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
-            df = df[['Open','High','Low','Close']].dropna()
+            df = df[['Open','High','Low','Close','Volume']].dropna()
 
             df['MA'] = df['Close'].rolling(MA_PERIOD).mean()
             latest, prev = df.iloc[-1], df.iloc[-2]
@@ -375,6 +375,7 @@ def scan_portfolio(holdings: list) -> list:
                 'broke':    broke,
                 'decline3': _is_decline3(df),
                 'death':    _is_death_candle(df),
+                'nollim':   _check_nollim_buyable(df, pct),
             })
         except Exception as e:
             print(f'  [스캔오류] {h["name"]} ({h["ticker"]}): {e}')
@@ -541,6 +542,26 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
             fields.append(f'`{r["name"]}`  *{r["pct"]:+.1f}%*{warn}  ({", ".join(r["accounts"])})')
         blocks.append(_fields(fields[:10]))
 
+    # 눌림목 추매 신호 (보유 종목 중)
+    nollim_port = [r for r in port_rows
+                   if r['above'] and not r['fresh']
+                   and r.get('nollim', {}).get('buyable')]
+    if nollim_port:
+        blocks.append(_section(
+            '*🟢 보유종목 눌림목 추매 신호 — 거래량 조건 충족*\n'
+            '>MA10 +5% 이내 + 과거 거래량 3배↑ 확인 + 현재 세력 이탈 없음'
+        ))
+        for r in nollim_port:
+            nl   = r.get('nollim', {})
+            accs = ', '.join(r['accounts'])
+            blocks.append(_fields([
+                f'*종목:* `{r["name"]}` ({accs})',
+                f'*MA10 대비:* *+{r["pct"]}%*',
+                f'*과거 최대 거래량:* {nl.get("surge_ratio",0):.1f}배↑',
+                f'*현재 눌림목 거래량:* {nl.get("curr_vol_r",0):.1f}배 (조용)',
+            ]))
+        blocks.append(_divider())
+
     # 정상 홀딩
     holding = [r for r in port_rows if r['above'] and not r['fresh']]
     if holding:
@@ -549,7 +570,8 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
         for r in holding:
             emoji = '▲' if r['pct'] > 15 else ('→' if r['pct'] > 0 else '▽')
             warn  = ' ⚠️3개월연속하락' if r.get('decline3') else ''
-            fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*{warn}')
+            nollim_mark = ' 🟢추매검토' if r.get('nollim', {}).get('buyable') else ''
+            fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*{warn}{nollim_mark}')
         blocks.append(_fields(fields[:10]))
 
     # 요약

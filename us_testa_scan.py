@@ -18,7 +18,7 @@ US_STOCKS = {
     'QS':'퀀텀스케이프','OKLO':'오클로','TEM':'템퍼스AI',
     'CRWD':'크라우드스트라이크','PLTR':'팔란티어','DOCS':'독시미티',
     'CRSP':'크리스퍼','ALNY':'알닐람파마','SMR':'뉴스케일파워',
-    'FTI':'테크닙FMC','ABB':'ABB','WDC':'웨스턴디지털','CBRS':'세레브라스',
+    'FTI':'테크닙FMC','WDC':'웨스턴디지털','CBRS':'세레브라스',
 }
 
 MA_SHORT, MA_MID, MA_LONG = 5, 25, 75
