@@ -153,6 +153,100 @@ def _is_death_candle(df: pd.DataFrame) -> bool:
     return bool(below and bearish and big)
 
 
+def _check_jangdae_zone(df: pd.DataFrame) -> dict:
+    """장대양봉 4등분선 — 성승현 매도 기준
+    최근 12개월 내 MA10 위에서 발생한 가장 큰 장대양봉 기준 현재가 위치 확인
+      상위 25% 유지   → 홀딩
+      50% 중심선 이탈 → ⚠️ 경고
+      하위 25% 이탈   → 🚨 매도 검토
+    """
+    if len(df) < 3 or 'MA' not in df.columns:
+        return {}
+    try:
+        recent = df.iloc[-13:-1]
+        candidates = []
+        for _, row in recent.iterrows():
+            o  = float(row.get('Open', 0))
+            c  = float(row['Close'])
+            ma = float(row['MA']) if not pd.isna(row['MA']) else 0
+            if o <= 0 or ma <= 0:
+                continue
+            if c > o and c > ma:
+                body_pct = (c - o) / o * 100
+                if body_pct >= 5.0:
+                    candidates.append({'open': o, 'close': c, 'body_pct': body_pct})
+        if not candidates:
+            return {}
+        best  = max(candidates, key=lambda x: x['body_pct'])
+        body  = best['close'] - best['open']
+        q1    = best['open'] + body * 0.25
+        q2    = best['open'] + body * 0.50
+        q3    = best['open'] + body * 0.75
+        curr  = float(df['Close'].iloc[-1])
+        if curr >= q3:
+            zone, warn, sell, label = 'top',      False, False, '상위25% 유지'
+        elif curr >= q2:
+            zone, warn, sell, label = 'mid_high', False, False, '중위권 유지'
+        elif curr >= q1:
+            zone, warn, sell, label = 'mid_low',  True,  False, '⚠️ 중심선 이탈 경고'
+        else:
+            zone, warn, sell, label = 'bottom',   True,  True,  '🚨 하위25% — 매도 검토'
+        return {
+            'zone': zone, 'label': label,
+            'warn': warn, 'sell': sell,
+            'q1': round(q1, 2), 'q2': round(q2, 2), 'q3': round(q3, 2),
+            'body_pct': round(best['body_pct'], 1),
+        }
+    except Exception:
+        return {}
+
+
+def _vol_quality(vol_r: float) -> str:
+    """거래량 품질 라벨 — 신규돌파 신뢰도 판단"""
+    if vol_r >= 2.0:
+        return '🔥 거래량폭발(강한신호)'
+    if vol_r >= 1.5:
+        return '✅ 거래량증가(양호)'
+    if vol_r >= 1.0:
+        return '거래량보통'
+    return '⚠️ 거래량부족(주의)'
+
+
+def get_exchange_rate() -> dict:
+    """원/달러 환율 현황 (주봉 MA10 기준)"""
+    try:
+        df = yf.Ticker('USDKRW=X').history(period='1y', interval='1wk', auto_adjust=True)
+        df = df[['Close']].dropna()
+        if len(df) < 12:
+            return {}
+        df['MA10'] = df['Close'].rolling(10).mean()
+        df = df.dropna()
+        rate    = float(df['Close'].iloc[-1])
+        ma10    = float(df['MA10'].iloc[-1])
+        pct     = (rate - ma10) / ma10 * 100
+        rate_1m = float(df['Close'].iloc[-4]) if len(df) >= 4 else rate
+        chg_1m  = (rate - rate_1m) / rate_1m * 100
+        return {
+            'rate':    round(rate, 1),
+            'ma10':    round(ma10, 1),
+            'pct':     round(pct, 1),
+            'chg_1m':  round(chg_1m, 1),
+            'strong':  rate > ma10,   # 달러 강세 여부
+        }
+    except Exception:
+        return {}
+
+
+def build_exchange_rate_section(fx: dict) -> str:
+    """환율 한 줄 요약 텍스트"""
+    if not fx:
+        return ''
+    arrow  = '↑' if fx['strong'] else '↓'
+    trend  = '달러강세 (미국주식 원화환산 유리)' if fx['strong'] else '달러약세 (미국주식 원화환산 불리)'
+    return (f'💱 원/달러 *{fx["rate"]:,.0f}원*  MA10 {fx["ma10"]:,.0f}원  '
+            f'({fx["pct"]:+.1f}%)  1개월 {fx["chg_1m"]:+.1f}%  {arrow} {trend}')
+
+
 def topdown_analysis() -> dict:
     """글로벌 지수 월봉 MA10 탑다운 분석 (성승현 1원칙)"""
     results = {}
@@ -229,13 +323,7 @@ def build_topdown_section(td: dict) -> list:
     return [_section('\n'.join(lines)), _divider()]
 
 
-def send_slack(blocks: list, text: str = "주식 알림", url: str = None):
-    """Slack Block Kit 메시지 전송 (url 미지정 시 기본 webhook 사용)"""
-    target = url or WEBHOOK_URL
-    if not target or target.startswith('여기에'):
-        print('[Slack 미설정] config.json의 slack_webhook_url을 입력해주세요.')
-        return False
-
+def _send_slack_raw(blocks: list, text: str, target: str) -> bool:
     payload = json.dumps({'text': text, 'blocks': blocks}).encode('utf-8')
     req = urllib.request.Request(
         target,
@@ -250,6 +338,32 @@ def send_slack(blocks: list, text: str = "주식 알림", url: str = None):
     except urllib.error.URLError as e:
         print(f'Slack 전송 오류: {e}')
         return False
+
+
+def send_slack(blocks: list, text: str = "주식 알림", url: str = None):
+    """Slack Block Kit 메시지 전송 (url 미지정 시 기본 webhook 사용)
+
+    Slack은 메시지당 블록 50개가 한도라, 종목 수가 많은 달엔 이 한도를
+    넘어 전송 자체가 조용히 거부될 수 있음(HTTP 400, 예외로 잡혀서
+    스크립트는 계속 진행 → 실패를 눈치채기 어려움). 50개 초과 시
+    여러 메시지로 나눠 보내 정보 손실 없이 전달한다.
+    """
+    target = url or WEBHOOK_URL
+    if not target or target.startswith('여기에'):
+        print('[Slack 미설정] config.json의 slack_webhook_url을 입력해주세요.')
+        return False
+
+    LIMIT = 50
+    if len(blocks) <= LIMIT:
+        return _send_slack_raw(blocks, text, target)
+
+    chunks = [blocks[i:i + LIMIT] for i in range(0, len(blocks), LIMIT)]
+    print(f'[Slack] 블록 {len(blocks)}개 → {LIMIT}개 한도 초과, {len(chunks)}개 메시지로 분할 전송')
+    all_ok = True
+    for i, chunk in enumerate(chunks, 1):
+        ok = _send_slack_raw(chunk, f'{text} ({i}/{len(chunks)})', target)
+        all_ok = all_ok and ok
+    return all_ok
 
 
 # ── 구글시트 포트폴리오 읽기 ──────────────────────────────────
@@ -376,6 +490,7 @@ def scan_portfolio(holdings: list) -> list:
                 'decline3': _is_decline3(df),
                 'death':    _is_death_candle(df),
                 'nollim':   _check_nollim_buyable(df, pct),
+                'jangdae':  _check_jangdae_zone(df),
             })
         except Exception as e:
             print(f'  [스캔오류] {h["name"]} ({h["ticker"]}): {e}')
@@ -448,6 +563,7 @@ def scan_all() -> list:
                 fresh=fresh, broke=broke, vol_r=round(vol_r, 2),
                 decline3=_is_decline3(df), death=_is_death_candle(df),
                 nollim=nollim,
+                jangdae=_check_jangdae_zone(df),
             ))
         except:
             pass
@@ -668,9 +784,10 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
     if fresh:
         blocks.append(_section('*★ 신규 돌파 종목* — 월말 확정 시 진입 검토'))
         for r in fresh:
+            vol_lbl = _vol_quality(r.get('vol_r', 0))
             blocks.append(_section(
                 f'`{r["ticker"]}` *{r["name"]}*  |  {r["close"]:,.2f}  |  '
-                f'10이평 대비 *+{r["pct"]}%*  |  거래량 {r["vol_r"]:.1f}x'
+                f'10이평 대비 *+{r["pct"]}%*  |  거래량 {r["vol_r"]:.1f}x  {vol_lbl}'
             ))
         blocks.append(_divider())
 
@@ -744,11 +861,14 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     ym = datetime.today().strftime('%Y년 %m월')
     regime, bullish, total = topdown_regime(td) if td else ('⚪ 미확인', 0, 0)
     ratio  = int(bullish / total * 100) if total else 0
+    fx = get_exchange_rate()
+    fx_line = '\n' + build_exchange_rate_section(fx) if fx else ''
     blocks = [
         _header(f'{ym} 월봉 매매 결정  {today_str}  |  {regime}'),
         _section(
             '*월봉 10이평선 종가 확정 — 이달 매매 결정 알림*\n'
             '>✅ 이 알림 기준으로 매수/매도를 결정하세요.'
+            + fx_line
         ),
         _divider(),
     ]
@@ -774,13 +894,14 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     if fresh:
         blocks.append(_section('*★ 매수 진입 — 이번달 10이평 신규 돌파*'))
         for r in fresh:
+            vol_lbl = _vol_quality(r.get('vol_r', 0))
             blocks.append(_fields([
                 f'*종목:* `{r["ticker"]}` {r["name"]}',
                 f'*섹터:* {r["sector"]}',
                 f'*현재가:* {r["close"]:,.2f}',
                 f'*10이평:* {r["ma"]:,.2f}',
                 f'*대비:* +{r["pct"]}%',
-                f'*거래량:* {r["vol_r"]:.1f}x',
+                f'*거래량:* {r["vol_r"]:.1f}x  {vol_lbl}',
             ]))
         blocks.append(_divider())
 
@@ -817,15 +938,29 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
 
     if trend:
         blocks.append(_section('*● 추세권 — 보유 유지 (+5~15%, 신규 진입 주의)*'))
-        fields = [f'`{r["ticker"]}` {r["name"]}  +{r["pct"]}%'
-                  + (' ⚠️3개월연속하락' if r.get('decline3') else '') for r in trend]
+        fields = []
+        for r in trend:
+            line = f'`{r["ticker"]}` {r["name"]}  +{r["pct"]}%'
+            if r.get('decline3'):
+                line += ' ⚠️3개월연속하락'
+            jz = r.get('jangdae', {})
+            if jz.get('warn'):
+                line += f'\n  └ 장대양봉 4등분: *{jz["label"]}* (몸통 {jz["body_pct"]}%)'
+            fields.append(line)
         blocks.append(_fields(fields[:10]))
         blocks.append(_divider())
 
     if high:
         blocks.append(_section('*△ 보유 홀딩 / 신규 매수 금지 — 고점권 (+15% 초과)*'))
-        fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*'
-                  + (' ⚠️3개월연속하락' if r.get('decline3') else '') for r in high]
+        fields = []
+        for r in high:
+            line = f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*'
+            if r.get('decline3'):
+                line += ' ⚠️3개월연속하락'
+            jz = r.get('jangdae', {})
+            if jz.get('warn'):
+                line += f'\n  └ 장대양봉 4등분: *{jz["label"]}* (몸통 {jz["body_pct"]}%)'
+            fields.append(line)
         blocks.append(_fields(fields[:10]))
         blocks.append(_divider())
 
@@ -992,6 +1127,19 @@ def run(mode: str = 'auto'):
     rows = scan_all()
     print(f'개별종목 스캔 완료: {len(rows)}종목')
     _save_us_signals(rows)
+
+    # 트래커 연동 — 매수/매도 신호 자동 기록
+    try:
+        import signal_tracker as tracker
+        for r in rows:
+            if r.get('fresh'):
+                tracker.record_signal(r['ticker'], r['name'], '월봉MA10',
+                                      r['close'], r['ma'])
+            elif r.get('broke'):
+                tracker.record_sell_signal(r['ticker'], r['name'], '월봉MA10',
+                                           r['close'], 'MA10이탈')
+    except Exception as e:
+        print(f'[트래커] {e}')
     etf_rows = scan_etfs()
     print(f'테마ETF 스캔 완료: {len(etf_rows)}개')
 

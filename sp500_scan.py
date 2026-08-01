@@ -24,22 +24,29 @@ ENTRY_LIMIT = 15.0   # 추세권 상한 (MA10 대비 +15% 이내)
 
 
 # ── S&P 500 티커 목록 ─────────────────────────────────────────
-def get_sp500_tickers() -> list:
-    """Wikipedia에서 S&P 500 구성 종목 가져오기"""
-    import requests
-    try:
-        url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        resp = requests.get(url, headers=headers, timeout=15)
-        from io import StringIO
-        tables = pd.read_html(StringIO(resp.text))
-        df = tables[0]
-        tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
-        print(f'S&P 500 티커 로드 완료: {len(tickers)}개')
-        return tickers
-    except Exception as e:
-        print(f'Wikipedia 로드 실패: {e}')
-        return []
+def get_sp500_tickers(retries: int = 3) -> list:
+    """Wikipedia에서 S&P 500 구성 종목 가져오기 (일시적 실패 대비 재시도)"""
+    import requests, time, traceback
+    from io import StringIO
+
+    url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=20)
+            resp.raise_for_status()
+            tables = pd.read_html(StringIO(resp.text))
+            df = tables[0]
+            tickers = df['Symbol'].str.replace('.', '-', regex=False).tolist()
+            print(f'S&P 500 티커 로드 완료: {len(tickers)}개')
+            return tickers
+        except Exception as e:
+            print(f'Wikipedia 로드 실패 ({attempt}/{retries}회차): {type(e).__name__}: {e}')
+            traceback.print_exc()
+            if attempt < retries:
+                time.sleep(5 * attempt)
+    return []
 
 
 # ── 월봉 MA10 스캔 ────────────────────────────────────────────
@@ -285,3 +292,14 @@ if __name__ == '__main__':
     save_csv(results)
     save_signals(results)
     send_slack(results)
+
+    # 트래커 연동 — 신규돌파 자동 기록
+    try:
+        sys.path.insert(0, BASE)
+        import signal_tracker as tracker
+        for r in results:
+            if r.get('fresh'):
+                tracker.record_signal(r['ticker'], r['ticker'], '월봉MA10',
+                                      r['close'], r['ma10'])
+    except Exception as e:
+        print(f'[트래커] {e}')
