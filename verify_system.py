@@ -269,6 +269,54 @@ def check_price_anomalies():
 
 
 # ══════════════════════════════════════════════════════════════
+# 8. GitHub Actions 실행 이력 검증
+#    ("success"로 끝났어도 내부적으로 슬랙 전송이 조용히 실패할 수 있어서
+#     생긴 사고 — 이 워크플로우들이 최근 실제로 failure를 내진 않았는지 확인)
+# ══════════════════════════════════════════════════════════════
+def check_workflow_runs():
+    print('\n[8] GitHub Actions 최근 실행 이력 검증')
+    repo = 'jmpion-jm/-testa-scanner'
+    workflows = [
+        'slack_alert.yml', 'sp500_scan.yml', 'ndx100_scan.yml',
+        'testa_scan.yml', 'testa_morning.yml',
+    ]
+    token = os.environ.get('GITHUB_TOKEN', '')
+    headers = {'Accept': 'application/vnd.github+json'}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+
+    cutoff = datetime.utcnow() - timedelta(days=8)
+
+    for wf in workflows:
+        url = f'https://api.github.com/repos/{repo}/actions/workflows/{wf}/runs?per_page=10'
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=15) as res:
+                data = json.load(res)
+        except Exception as e:
+            warn(f'{wf}: 실행 이력 조회 실패 — {e}')
+            continue
+
+        runs = data.get('workflow_runs', [])
+        recent = []
+        for r in runs:
+            created = datetime.strptime(r['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+            if created < cutoff:
+                continue
+            recent.append(r)
+
+        if not recent:
+            warn(f'{wf}: 최근 8일간 실행 기록 없음 — 스케줄이 안 돌았을 수 있음')
+            continue
+
+        failed = [r for r in recent if r.get('conclusion') == 'failure']
+        if failed:
+            err(f'{wf}: 최근 8일간 {len(failed)}건 실패 (총 {len(recent)}건 중) — Actions 로그 확인 필요')
+        else:
+            ok(f'{wf}: 최근 {len(recent)}건 전부 성공')
+
+
+# ══════════════════════════════════════════════════════════════
 # 슬랙 검증 결과 전송
 # ══════════════════════════════════════════════════════════════
 def send_verification_report():
@@ -340,6 +388,7 @@ if __name__ == '__main__':
     check_etf_tickers()
     check_signal_files()
     check_price_anomalies()
+    check_workflow_runs()
 
     print(f'\n{"="*60}')
     print(f'  결과: 오류 {len(errors)}건 / 경고 {len(warnings_list)}건')

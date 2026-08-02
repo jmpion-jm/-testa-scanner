@@ -26,4 +26,6 @@ jobs:
         run: echo '${{ secrets.CONFIG_JSON }}' > config.json
 
       - name: 시스템 검증 실행
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python -u verify_system.py
