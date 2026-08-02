@@ -1,0 +1,46 @@
+name: 회귀 테스트 (push 시 자동 실행)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: 테스트용 config.json 생성
+        # 실제 CONFIG_JSON 시크릿을 쓰지 않음 — 이 테스트는 진짜 슬랙으로
+        # 전송하지 않고 로직만 검증하므로 최소한의 더미 값이면 충분함.
+        run: |
+          cat > config.json << 'EOF'
+          {
+            "slack_webhook_url": "https://example.com/dummy",
+            "slack_webhook_url_pension": "https://example.com/dummy",
+            "stocks": {"AAPL": ["애플", "테스트"]},
+            "theme_etfs": {"357870.KS": ["TIGER CD금리투자KIS", "안전자산"]},
+            "safe_haven_etf": "357870.KS",
+            "safe_haven_name": "TIGER CD금리투자KIS",
+            "ma_period": 10,
+            "alert_thresholds": {
+              "crash_alert_pct": -15,
+              "breakout_zone_pct": 5
+            }
+          }
+          EOF
+
+      - name: 회귀 테스트 실행
+        run: python -u tests/test_alerts.py
