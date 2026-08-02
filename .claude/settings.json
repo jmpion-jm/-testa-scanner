@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"c:\\Users\\user\\Desktop\\주식정보\\.claude\\hooks\\check_py_syntax.py\"",
+            "shell": "bash",
+            "timeout": 15,
+            "statusMessage": "Python 문법 확인 중..."
+          }
+        ]
+      }
+    ]
+  }
+}
