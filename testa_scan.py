@@ -407,6 +407,16 @@ def main():
         json.dump(save_data, f, ensure_ascii=False, indent=2)
     print(f'신호 저장 완료: {sig_path}')
 
+    # 트래커 연동 — 신호 자동 기록
+    try:
+        import signal_tracker as tracker
+        for s in signals:
+            tracker.record_signal(s['ticker'], s['name'], '테스타일봉',
+                                  s['entry'], s.get('ma5', s['entry']),
+                                  stop=s['stop'], target=s['target'])
+    except Exception as e:
+        print(f'[트래커] {e}')
+
     send_slack(signals)
 
 

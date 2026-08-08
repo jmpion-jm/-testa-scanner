@@ -13,3 +13,12 @@ venv/
 *.png
 *.xlsx
 *.log
+
+# 스캔 결과물 (실행할 때마다 갱신되는 산출 데이터 — 커밋 이력 노이즈 방지)
+# testa_signals.json / us_signals.json은 기존부터 추적 중이라 제외 안 함
+signal_log.json
+bnf_signals.json
+ndx100_signals.json
+sp500_signals.json
+ndx100_scan_result.csv
+sp500_scan_result.csv

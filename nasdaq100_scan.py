@@ -275,3 +275,14 @@ if __name__ == '__main__':
     save_csv(results)
     save_signals(results)
     send_slack(results)
+
+    # 트래커 연동 — 신규돌파 자동 기록
+    try:
+        sys.path.insert(0, BASE)
+        import signal_tracker as tracker
+        for r in results:
+            if r.get('fresh'):
+                tracker.record_signal(r['ticker'], r['ticker'], '월봉MA10',
+                                      r['close'], r['ma10'])
+    except Exception as e:
+        print(f'[트래커] {e}')

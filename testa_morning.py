@@ -76,8 +76,32 @@ def main():
     sig_parsed = datetime.strptime(sig_date, '%Y-%m-%d').date()
     days_ago   = (today - sig_parsed).days
 
+    if days_ago > 7:
+        print(f'신호가 {days_ago}일 전 것 — 스캔 미실행 가능성 있음.')
+        blocks = [
+            {"type": "header",
+             "text": {"type": "plain_text", "text": f"⚠️ 테스타 스캔 점검 필요  {today_str}"}},
+            {"type": "section",
+             "text": {"type": "mrkdwn",
+                      "text": (f"신호 파일이 *{days_ago}일 전* ({sig_date}) 데이터입니다.\n"
+                               f"GitHub Actions 스캔이 실행되지 않았을 수 있습니다.\n"
+                               f"_GitHub Actions → testa_scan.yml 실행 이력 확인 바랍니다._")}}
+        ]
+        send_slack(blocks, f'⚠️ 테스타 스캔 점검 필요 {today_str}')
+        return
+
     if days_ago > 3:
-        print(f'신호가 {days_ago}일 전 것 — 너무 오래돼서 건너뜁니다.')
+        print(f'신호가 {days_ago}일 전 것 — 주말/휴일 포함 스캔 누락 경고.')
+        blocks = [
+            {"type": "header",
+             "text": {"type": "plain_text", "text": f"⚠️ 테스타 스캔 누락 의심  {today_str}"}},
+            {"type": "section",
+             "text": {"type": "mrkdwn",
+                      "text": (f"신호 파일이 *{days_ago}일 전* ({sig_date}) 데이터입니다.\n"
+                               f"최근 평일 스캔이 신호 없이 종료되어 파일 미갱신됐을 수 있습니다.\n"
+                               f"_오늘 16:00 스캔 결과를 확인하세요._")}}
+        ]
+        send_slack(blocks, f'⚠️ 테스타 스캔 누락 의심 {today_str}')
         return
 
     if not signals:

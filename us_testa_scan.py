@@ -2,24 +2,16 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import json, os
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
 
-US_STOCKS = {
-    'LHX':'L3해리스','ASTS':'AST스페이스','NVDA':'엔비디아','IONQ':'아이온큐',
-    'AVGO':'브로드컴','MRVL':'마벨테크','AMD':'AMD','ALAB':'아스테라랩스',
-    'NTAP':'넷앱','VRT':'버티브','ON':'온세미','NVTS':'나비타스',
-    'APH':'암페놀','TDY':'텔레다인','COHR':'코히런트','LITE':'루멘텀',
-    'GLW':'코닝','AAOI':'어플라이드옵토','RTX':'RTX','ATI':'ATI',
-    'CRS':'카펜터테크','LDOS':'레이도스','BWXT':'BWX테크','PLUG':'플러그파워',
-    'RKLB':'로켓랩','TSLA':'테슬라','PSTG':'퓨어스토리지','ORCL':'오라클',
-    'RGTI':'리게티','FCX':'프리포트맥모란','OII':'오세아니어링',
-    'QS':'퀀텀스케이프','OKLO':'오클로','TEM':'템퍼스AI',
-    'CRWD':'크라우드스트라이크','PLTR':'팔란티어','DOCS':'독시미티',
-    'CRSP':'크리스퍼','ALNY':'알닐람파마','SMR':'뉴스케일파워',
-    'FTI':'테크닙FMC','WDC':'웨스턴디지털','CBRS':'세레브라스',
-}
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(BASE_DIR, 'config.json'), encoding='utf-8') as f:
+    _CFG = json.load(f)
+
+US_STOCKS = {ticker: name for ticker, (name, sector) in _CFG['stocks'].items()}
 
 MA_SHORT, MA_MID, MA_LONG = 5, 25, 75
 VOLUME_MULT = 1.5
@@ -90,6 +82,16 @@ for ticker, name in US_STOCKS.items():
         })
     except Exception as e:
         pass
+
+# 트래커 연동 — 신호 자동 기록
+try:
+    import signal_tracker as tracker
+    for s in current_signals:
+        tracker.record_signal(s['ticker'], s['name'], '테스타일봉',
+                              s['entry'], s['entry'],
+                              stop=s['stop'], target=s['target'])
+except Exception as e:
+    print(f'[트래커] {e}')
 
 if current_signals:
     print('★ 현재 신호 종목:')
