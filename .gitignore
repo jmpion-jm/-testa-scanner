@@ -22,3 +22,19 @@ ndx100_signals.json
 sp500_signals.json
 ndx100_scan_result.csv
 sp500_scan_result.csv
+
+# 개인 문서/참고자료/일회성 산출물 (코드 아님, 추적 대상 아님)
+*.docx
+*.xls
+*.jpg
+*.jpeg
+*.bat
+watchlist_by_sector.txt
+watchlist_export.csv
+watchlist_tickers_only.txt
+김학주교수/
+일본투자자 매매법/
+종목검토/
+종목평가/
+캔들차트(성승현작가)/
+클로드 주식투자 자동화시스템 구축/
