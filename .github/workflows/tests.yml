@@ -42,5 +42,11 @@ jobs:
           }
           EOF
 
-      - name: 회귀 테스트 실행
+      - name: 회귀 테스트 실행 (알림 시스템)
         run: python -u tests/test_alerts.py
+
+      - name: 회귀 테스트 실행 (월봉MA10 신호 로직)
+        run: python -u tests/test_ma10_monthly_signal.py
+
+      - name: 회귀 테스트 실행 (월봉×주봉 이중필터 로직)
+        run: python -u tests/test_ma10_weekly_pullback.py
