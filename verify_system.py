@@ -84,8 +84,17 @@ def check_config():
 # ══════════════════════════════════════════════════════════════
 def check_slack_webhooks():
     print('\n[2] 슬랙 웹훅 URL 검증')
+
+    # slack_webhook_url(ALERT_URL)은 이 검증 리포트 자체가 그 채널로 전송되므로
+    # 별도 핑을 보내지 않는다 — 리포트 전송 성공 여부가 곧 이 웹훅의 검증이고,
+    # 핑을 따로 보내면 리포트 직전에 "무시해도 되는 메시지"가 같은 채널에 찍혀서
+    # 진짜 오류 리포트까지 노이즈로 오인되는 문제가 있었음.
+    if not CFG.get('slack_webhook_url', ''):
+        warn('slack_webhook_url 미설정')
+    else:
+        ok('slack_webhook_url 존재 (검증 리포트 전송 성공 여부로 확인됨)')
+
     webhook_keys = [
-        'slack_webhook_url',
         'slack_webhook_url_testa',
         'slack_webhook_url_pension',
         'slack_webhook_url_sp500',
@@ -97,7 +106,7 @@ def check_slack_webhooks():
             warn(f'{key} 미설정')
             continue
         try:
-            payload = json.dumps({'text': '✅ 검증 테스트 (무시)'}).encode('utf-8')
+            payload = json.dumps({'text': f'🔧 [자동검증] {key} 연결 확인 핑 — 실제 알림 아님, 조치 불필요'}).encode('utf-8')
             req = urllib.request.Request(url, data=payload,
                                          headers={'Content-Type': 'application/json'})
             with urllib.request.urlopen(req, timeout=8) as res:
@@ -276,18 +285,22 @@ def check_price_anomalies():
 def check_workflow_runs():
     print('\n[8] GitHub Actions 최근 실행 이력 검증')
     repo = 'jmpion-jm/-testa-scanner'
-    workflows = [
-        'slack_alert.yml', 'sp500_scan.yml', 'ndx100_scan.yml',
-        'testa_scan.yml', 'testa_morning.yml',
-    ]
+    # 워크플로우별 예상 실행 주기(일). sp500/ndx100은 매월 28~31일에만 도는
+    # 월간 스캔이라 8일 기준으로 보면 한 달 중 대부분 "미실행"으로 오탐났었음.
+    workflows = {
+        'slack_alert.yml':   8,
+        'sp500_scan.yml':   35,
+        'ndx100_scan.yml':  35,
+        'testa_scan.yml':    8,
+        'testa_morning.yml': 8,
+    }
     token = os.environ.get('GITHUB_TOKEN', '')
     headers = {'Accept': 'application/vnd.github+json'}
     if token:
         headers['Authorization'] = f'Bearer {token}'
 
-    cutoff = datetime.utcnow() - timedelta(days=8)
-
-    for wf in workflows:
+    for wf, window_days in workflows.items():
+        cutoff = datetime.utcnow() - timedelta(days=window_days)
         url = f'https://api.github.com/repos/{repo}/actions/workflows/{wf}/runs?per_page=10'
         try:
             req = urllib.request.Request(url, headers=headers)
@@ -306,12 +319,12 @@ def check_workflow_runs():
             recent.append(r)
 
         if not recent:
-            warn(f'{wf}: 최근 8일간 실행 기록 없음 — 스케줄이 안 돌았을 수 있음')
+            warn(f'{wf}: 최근 {window_days}일간 실행 기록 없음 — 스케줄이 안 돌았을 수 있음')
             continue
 
         failed = [r for r in recent if r.get('conclusion') == 'failure']
         if failed:
-            err(f'{wf}: 최근 8일간 {len(failed)}건 실패 (총 {len(recent)}건 중) — Actions 로그 확인 필요')
+            err(f'{wf}: 최근 {window_days}일간 {len(failed)}건 실패 (총 {len(recent)}건 중) — Actions 로그 확인 필요')
         else:
             ok(f'{wf}: 최근 {len(recent)}건 전부 성공')
 
@@ -368,9 +381,15 @@ def send_verification_report():
         ALERT_URL, data=payload, headers={'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=10) as res:
-            print(f'\n슬랙 전송: {"성공" if res.read().decode()=="ok" else "실패"}')
+            sent_ok = res.read().decode() == 'ok'
+            print(f'\n슬랙 전송: {"성공" if sent_ok else "실패"}')
+            if not sent_ok:
+                print('::error::검증 리포트 슬랙 전송 실패 — 응답이 ok가 아님')
+                sys.exit(1)
     except Exception as e:
         print(f'\n슬랙 전송 오류: {e}')
+        print('::error::검증 리포트 슬랙 전송 예외 발생')
+        sys.exit(1)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -395,3 +414,9 @@ if __name__ == '__main__':
     print(f'{"="*60}')
 
     send_verification_report()
+
+    # 실제 오류가 있으면 Actions 실행 자체를 failure로 표시 — 슬랙만 보지 않고
+    # Actions 탭만 훑어봐도 "success인데 사실 문제 있음" 상태가 나오지 않게 함
+    if errors:
+        print(f'::error::검증 오류 {len(errors)}건 발견 — 위 목록 확인 필요')
+        sys.exit(1)
