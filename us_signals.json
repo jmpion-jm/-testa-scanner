@@ -1,15 +1,30 @@
 {
-  "date": "2026-06-02",
+  "date": "2026-08-14",
   "signals": [
     {
-      "ticker": "APH",
-      "name": "암페놀",
-      "pct": 4.9
+      "ticker": "VRT",
+      "name": "버티브홀딩스",
+      "pct": 13.0
     },
     {
-      "ticker": "TDY",
-      "name": "텔레다인테크",
-      "pct": 3.2
+      "ticker": "NVTS",
+      "name": "나비타스세미",
+      "pct": 6.9
+    },
+    {
+      "ticker": "GLW",
+      "name": "코닝",
+      "pct": 8.8
+    },
+    {
+      "ticker": "RKLB",
+      "name": "로켓랩",
+      "pct": 0.4
+    },
+    {
+      "ticker": "LIN",
+      "name": "린데",
+      "pct": 0.6
     }
   ]
 }
