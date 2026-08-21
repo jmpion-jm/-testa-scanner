@@ -1,30 +1,40 @@
 {
-  "date": "2026-08-14",
+  "date": "2026-08-21",
   "signals": [
     {
       "ticker": "VRT",
       "name": "버티브홀딩스",
-      "pct": 13.0
+      "pct": 5.1
     },
     {
       "ticker": "NVTS",
       "name": "나비타스세미",
-      "pct": 6.9
+      "pct": 2.1
+    },
+    {
+      "ticker": "APH",
+      "name": "암페놀",
+      "pct": 3.7
+    },
+    {
+      "ticker": "TDY",
+      "name": "텔레다인테크",
+      "pct": 3.3
     },
     {
       "ticker": "GLW",
       "name": "코닝",
-      "pct": 8.8
-    },
-    {
-      "ticker": "RKLB",
-      "name": "로켓랩",
-      "pct": 0.4
+      "pct": 4.4
     },
     {
       "ticker": "LIN",
       "name": "린데",
-      "pct": 0.6
+      "pct": 1.2
+    },
+    {
+      "ticker": "TEM",
+      "name": "템퍼스AI",
+      "pct": 17.0
     }
   ]
 }
