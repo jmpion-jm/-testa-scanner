@@ -155,6 +155,10 @@ def send_slack(rows):
     buy_now = [r for r in rows if r['grade'] <= 2]
     watch   = [r for r in rows if r['grade'] == 3]
 
+    if not buy_now and not watch:
+        print('  진입후보/관찰 없음 — 슬랙 전송 스킵 (알림 피로도 방지)')
+        return
+
     blocks = []
 
     def _section(text):
@@ -197,6 +201,8 @@ def send_slack(rows):
         print('  슬랙 전송 완료')
     except Exception as e:
         print(f'  슬랙 전송 실패: {e}')
+        print('::error::us_weekly_scan 슬랙 전송 실패')
+        sys.exit(1)
 
 
 if __name__ == '__main__':
