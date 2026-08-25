@@ -1,18 +1,4 @@
 {
-  "date": "2026-08-24",
-  "signals": [
-    {
-      "entry": 22850,
-      "ma5": 22000,
-      "stop": 20850,
-      "target": 28850,
-      "risk_pct": 8.8,
-      "reward_pct": 26.3,
-      "qty": 0,
-      "invest": 0,
-      "max_loss": 0,
-      "ticker": "011200",
-      "name": "HMM"
-    }
-  ]
+  "date": "2026-08-25",
+  "signals": []
 }
