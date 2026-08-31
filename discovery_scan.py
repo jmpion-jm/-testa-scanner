@@ -6,6 +6,12 @@
 - NASDAQ 100 / S&P 500 미편입 종목 우선 발굴
 - 월봉 MA10 상태 함께 표시
 - 슬랙 전송
+
+⚠️ 2026-08-31 경고: 이 스크립트는 월봉MA10만 확인하고 주봉MA10 눌림목
+(진입 타이밍) 조건은 검증하지 않는다. "신규돌파/지지권" 표시는 매수 확정
+신호가 아니다 — CLAUDE.md의 실제 매수조건(월봉+주봉 이중조건)을 정확히
+구현한 us_weekly_scan.py 결과와 반드시 교차 확인할 것. GitHub Actions
+자동 스케줄에는 연결되어 있지 않고 수동 실행(workflow_dispatch)만 가능하다.
 """
 import sys, json, os, warnings
 sys.stdout.reconfigure(encoding='utf-8')
@@ -183,6 +189,10 @@ def send_slack(results: list):
                   "text": (f'신규돌파 *{len(fresh)}* 종목 / 지지권 *{len(dip)}* 종목 / '
                            f'추세권 *{len(trend)}* 종목\n'
                            f'_🆕미편입 = NASDAQ100·S&P500 미포함 신흥 종목_')}},
+        {"type": "context", "elements": [{"type": "mrkdwn",
+         "text": "⚠️ *이 스캔은 월봉만 확인합니다 — 주봉MA10 눌림목(진입 타이밍)은 "
+                 "검증 안 됨.* 실제 매수 판단 전 `us_weekly_scan.py` 결과와 반드시 "
+                 "교차 확인하세요."}]},
         {"type": "divider"},
     ]
 
@@ -229,7 +239,7 @@ if __name__ == '__main__':
         import signal_tracker as tracker
         for r in results:
             if r.get('priority') == 1:  # 신규돌파만
-                tracker.record_signal(r['ticker'], r['name'], '이슈섹터',
+                tracker.record_signal(r['ticker'], r['name'], '이슈섹터(주봉미검증)',
                                       r['close'], r['ma10'])
     except Exception as e:
         print(f'[트래커] {e}')

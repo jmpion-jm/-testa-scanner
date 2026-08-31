@@ -1129,11 +1129,19 @@ def run(mode: str = 'auto'):
     _save_us_signals(rows)
 
     # 트래커 연동 — 매수/매도 신호 자동 기록
+    #
+    # ⚠️ 2026-08-31 경고: 아래 매수신호(fresh) 기록은 월봉만 확인하고
+    # 주봉MA10 눌림목(진입 타이밍) 조건은 전혀 검증하지 않는다. CLAUDE.md의
+    # 실제 매수조건(월봉+주봉 이중조건)을 정확히 구현한 건 us_weekly_scan.py다.
+    # 이 record_signal이 남긴 "월봉MA10(주봉미검증)" 기록을 매수 근거로 쓰지
+    # 말 것 — us_weekly_scan.py 결과와 반드시 교차 확인할 것.
+    # (매도쪽 record_sell_signal은 CLAUDE.md 매도조건이 애초에 월봉 단독
+    # 기준이라 문제 없음.)
     try:
         import signal_tracker as tracker
         for r in rows:
             if r.get('fresh'):
-                tracker.record_signal(r['ticker'], r['name'], '월봉MA10',
+                tracker.record_signal(r['ticker'], r['name'], '월봉MA10(주봉미검증)',
                                       r['close'], r['ma'])
             elif r.get('broke'):
                 tracker.record_sell_signal(r['ticker'], r['name'], '월봉MA10',
