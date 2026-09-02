@@ -2,6 +2,12 @@
 """
 NASDAQ 100 전체 월봉 MA10 스캔
 월 1회 실행 → 진입 가능 종목 리스트 출력 + Slack 전송
+
+⚠️ 2026-09-02 경고: 이 스크립트는 월봉만 확인하고(신규돌파는 괴리율 무제한
+허용) 주봉MA10 눌림목은 검증하지 않는다. 아래 "실행 타임라인"의 "매수"
+표현은 확정 매수신호가 아니라 참고용 후보 목록이다 — 실제 매수 판단 전
+`us_weekly_scan.py`(월봉+주봉 이중조건, 월봉도 5% 이내 요구) 결과와 반드시
+교차 확인할 것.
 """
 import sys, json, os, warnings
 sys.stdout.reconfigure(encoding='utf-8')
@@ -23,6 +29,34 @@ except Exception:
     WEBHOOK   = os.environ.get('SLACK_NDX100_WEBHOOK_URL', '')
     MA_PERIOD = 10
 ENTRY_LIMIT = 15.0
+
+# ── AI 관련 종목 판별 ────────────────────────────────────────
+_AI_KEYWORDS = [
+    'artificial intelligence', ' ai ', 'ai-', 'machine learning',
+    'generative ai', 'neural network', 'deep learning',
+]
+_AI_INDUSTRY_HINTS = [
+    'semiconductor', 'software - infrastructure', 'software - application',
+    'information technology services', 'internet content',
+    'computer hardware', 'data processing',
+]
+
+def is_ai_related(ticker: str) -> bool:
+    """섹터/업종/사업설명 기반 AI 관련 여부 대략 판별 (완벽하지 않음, 참고용)"""
+    try:
+        info = yf.Ticker(ticker).info
+        sector   = (info.get('sector') or '').lower()
+        industry = (info.get('industry') or '').lower()
+        summary  = (info.get('longBusinessSummary') or '').lower()
+
+        if any(h in industry for h in _AI_INDUSTRY_HINTS) and sector == 'technology':
+            if any(k in summary for k in _AI_KEYWORDS):
+                return True
+        if any(k in summary[:2000] for k in _AI_KEYWORDS):
+            return True
+        return False
+    except Exception:
+        return False
 
 
 # ── NASDAQ 100 티커 목록 ──────────────────────────────────────
@@ -197,8 +231,20 @@ def send_slack(results: list):
                   "text": (f'진입 신호: *{len(df[df["priority"]<=2])}종목* '
                            f'(신규돌파 {len(fresh)} / 지지권 {len(df[df["priority"]==2])})\n'
                            f'_전체 목록: ndx100_scan_result.csv_')}},
+        {"type": "context", "elements": [{"type": "mrkdwn",
+         "text": "⚠️ *월봉만 확인 — 주봉MA10 눌림목 미검증.* 매수 전 "
+                 "`us_weekly_scan.py` 결과와 교차 확인하세요."}]},
         {"type": "divider"},
     ]
+
+    ai_tickers = [r['ticker'] for _, r in df.head(30).iterrows() if is_ai_related(r['ticker'])]
+    if ai_tickers:
+        ai_df = df[df['ticker'].isin(ai_tickers)]
+        lines = '\n'.join(fmt(r) for _, r in ai_df.iterrows())
+        blocks.append({"type": "section",
+                       "text": {"type": "mrkdwn",
+                                "text": f"*🤖 AI 관련 종목만 — {len(ai_df)}종목*\n{lines}"}})
+        blocks.append({"type": "divider"})
     if not fresh.empty:
         lines = '\n'.join(fmt(r) for _, r in fresh.iterrows())
         blocks.append({"type": "section",
@@ -226,15 +272,16 @@ def send_slack(results: list):
         for _, r in action_rows.iterrows():
             sig  = '신규돌파' if r['fresh'] else '지지권'
             warn = ' ⚠️연속하락' if r['decline3'] else ''
-            tl.append(f'{"22:30~":<9} {"미래에셋":<10} 🟢 {r["ticker"]} ${r["close"]:.2f}  매수 ({sig} {r["pct"]:+.1f}%){warn}')
+            tl.append(f'{"22:30~":<9} {"미래에셋":<10} 🟡 {r["ticker"]} ${r["close"]:.2f}  검토후보 ({sig} {r["pct"]:+.1f}%){warn}')
         table = f'```\n{header}\n{sep}\n' + '\n'.join(tl) + '\n```'
         blocks.append({"type": "divider"})
         blocks.append({"type": "header",
-                       "text": {"type": "plain_text", "text": "📋 실행 타임라인 (미국 시장 22:30~)"}})
+                       "text": {"type": "plain_text", "text": "📋 검토 타임라인 (미국 시장 22:30~) — 매수확정 아님"}})
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": table}})
         blocks.append({"type": "section",
                        "text": {"type": "mrkdwn",
-                                "text": "_⚠️ 매수 전 반드시 현재가 재확인  |  손절가(MA10 이탈) 기억_"}})
+                                "text": "_⚠️ 이 목록은 매수신호가 아니라 검토후보입니다. 주봉 눌림목 미검증 — "
+                                        "`us_weekly_scan.py`로 재확인 후 진입 판단하세요._"}})
 
     payload = json.dumps({'text': f'NASDAQ100 스캔 {today}', 'blocks': blocks},
                          ensure_ascii=False).encode('utf-8')

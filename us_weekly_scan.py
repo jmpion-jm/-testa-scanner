@@ -44,8 +44,10 @@ def scan():
             m_above = m_close > m_ma
             m_fresh = (float(dm.iloc[-2]['Close']) < float(dm.iloc[-2]['MA'])) and m_above
 
-            if not m_above:
-                continue   # 월봉MA10 아래 종목은 제외
+            # 2026-08-31 확정(재확인): 월봉이 MA10 대비 너무 많이 뻗은 종목은
+            # 이미 많이 올라서 매수 후보에서 제외 — 월봉도 5% 이내여야 함
+            if not m_above or m_pct > ZONE_PCT:
+                continue   # 월봉MA10 아래이거나 5% 초과로 뻗은 종목은 제외
 
             # ── 주봉 MA10 ──────────────────────────────────────
             dw = fetch(ticker, '1wk', '2y')
