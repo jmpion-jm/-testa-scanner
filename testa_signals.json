@@ -1,4 +1,31 @@
 {
-  "date": "2026-09-02",
-  "signals": []
+  "date": "2026-09-03",
+  "signals": [
+    {
+      "entry": 702000,
+      "ma5": 677600,
+      "stop": 651000,
+      "target": 855000,
+      "risk_pct": 7.3,
+      "reward_pct": 21.8,
+      "qty": 0,
+      "invest": 0,
+      "max_loss": 0,
+      "ticker": "000810",
+      "name": "삼성화재"
+    },
+    {
+      "entry": 6110,
+      "ma5": 5904,
+      "stop": 5740,
+      "target": 7219,
+      "risk_pct": 6.1,
+      "reward_pct": 18.2,
+      "qty": 0,
+      "invest": 0,
+      "max_loss": 0,
+      "ticker": "088350",
+      "name": "한화생명"
+    }
+  ]
 }
