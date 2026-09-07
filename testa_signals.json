@@ -1,18 +1,4 @@
 {
-  "date": "2026-09-04",
-  "signals": [
-    {
-      "entry": 157300,
-      "ma5": 151580,
-      "stop": 145300,
-      "target": 193300,
-      "risk_pct": 7.6,
-      "reward_pct": 22.9,
-      "qty": 0,
-      "invest": 0,
-      "max_loss": 0,
-      "ticker": "010950",
-      "name": "S-Oil"
-    }
-  ]
+  "date": "2026-09-07",
+  "signals": []
 }
