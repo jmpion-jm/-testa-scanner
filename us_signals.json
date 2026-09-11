@@ -1,15 +1,25 @@
 {
-  "date": "2026-09-04",
+  "date": "2026-09-11",
   "signals": [
     {
-      "ticker": "VRT",
-      "name": "버티브홀딩스",
-      "pct": 3.3
+      "ticker": "COHR",
+      "name": "코히런트",
+      "pct": 4.6
+    },
+    {
+      "ticker": "AAOI",
+      "name": "어플라이드옵토",
+      "pct": 0.9
     },
     {
       "ticker": "RTX",
       "name": "RTX",
-      "pct": 4.2
+      "pct": 2.3
+    },
+    {
+      "ticker": "CRS",
+      "name": "카펜터테크",
+      "pct": 2.3
     }
   ]
 }
