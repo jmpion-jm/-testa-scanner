@@ -246,27 +246,25 @@ def is_uptrend(ticker: str) -> bool:
         return False
 
 
-def get_revenue_growth(ticker: str) -> float | None:
-    """전년동기대비 매출성장률. 데이터 없으면 None (필터에서 제외 대상)."""
-    try:
-        info = yf.Ticker(ticker).info
-        g = info.get('revenueGrowth')
-        return float(g) if g is not None else None
-    except Exception:
-        return None
-
-
-def get_earnings_growth(ticker: str) -> float | None:
-    """전년동기대비 이익성장률(yfinance 'earningsGrowth') — 매출은 늘어도 이익이
-    안 늘거나 적자가 커지는 종목을 걸러내기 위한 참고 지표. 데이터 없으면 None
-    (표시만 안 됨, 필터에서 제외하지는 않음 — 매출성장률 필터와 달리 하드 컷 아님).
+def get_fundamentals(ticker: str) -> dict:
+    """yfinance .info를 한 번만 조회해서 매출성장률/이익성장률/영문 회사명/섹터를
+    한꺼번에 가져온다(따로따로 부르면 종목당 API 호출이 불필요하게 늘어남).
+    이름·섹터는 config.json(STOCK_INFO)에 한글 큐레이션이 있으면 그게 우선이고,
+    없는 종목(nasdaq100/sp500 대부분)은 이 함수의 영문 데이터로 채워서 모든
+    결과 행이 빠짐없이 이름·섹터·매출성장률·이익성장률을 갖도록 한다.
     """
     try:
         info = yf.Ticker(ticker).info
-        g = info.get('earningsGrowth')
-        return float(g) if g is not None else None
     except Exception:
-        return None
+        info = {}
+    g = info.get('revenueGrowth')
+    e = info.get('earningsGrowth')
+    return {
+        'revenue_growth': float(g) if g is not None else None,
+        'earnings_growth': float(e) if e is not None else None,
+        'long_name': info.get('longName') or info.get('shortName'),
+        'sector': info.get('industry') or info.get('sector'),
+    }
 
 
 BULLISH_FINDERS = (find_ssangbadak, find_samjungbadak, find_inverse_hns)
@@ -309,10 +307,16 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> list[dict]:
     print(f'  기술적 필터 통과 {len(consolidated)}종목 — 성장성 확인 중...')
     survivors = []
     for r in consolidated:
-        g = get_revenue_growth(r['ticker'])
-        r['revenue_growth'] = g
-        r['earnings_growth'] = get_earnings_growth(r['ticker'])  # 참고용 표시만, 필터 아님
-        if g is not None and g >= MIN_REVENUE_GROWTH:
+        t = r['ticker']
+        fund = get_fundamentals(t)
+        r['revenue_growth'] = fund['revenue_growth']
+        r['earnings_growth'] = fund['earnings_growth']  # 참고용 표시만, 필터 아님
+        if t in STOCK_INFO:
+            r['name'], r['sector'] = STOCK_INFO[t][0], STOCK_INFO[t][1]
+        else:
+            r['name'] = fund['long_name'] or t
+            r['sector'] = fund['sector']
+        if fund['revenue_growth'] is not None and fund['revenue_growth'] >= MIN_REVENUE_GROWTH:
             survivors.append(r)
     return survivors
 
@@ -329,7 +333,7 @@ def print_report(results: list[dict], label: str):
         e = r.get('earnings_growth')
         e_str = f"{e*100:+.0f}%" if e is not None else "N/A"
         ma10_str = f"(10월이평 {r['cur_ma10']:,.2f})" if r.get('cur_ma10') else ""
-        sector = STOCK_INFO.get(r['ticker'], [None, None])[1]
+        sector = r.get('sector')
         sector_str = f" [{sector}]" if sector else ""
         print(f"  [{r['pattern_label']}] {r['ticker']:<8} {r['name']:<20}{sector_str} 현재가 {r['cur_close']:,.2f} {ma10_str}  매출성장률 {g_str}  이익성장률 {e_str}")
     print(f"\n  총 {len(results)}건 — ⚠️ 1차 스크리너 결과입니다. 반드시 차트로 육안 재확인 후 매매 판단하세요.")
@@ -363,7 +367,7 @@ def send_slack(results: list[dict], label: str):
             g_str = f"{g*100:+.0f}%" if g is not None else "N/A"
             e = r.get('earnings_growth')
             e_str = f"{e*100:+.0f}%" if e is not None else "N/A"
-            sector = STOCK_INFO.get(r['ticker'], [None, None])[1]
+            sector = r.get('sector')
             sector_str = f"  _{sector}_" if sector else ""
             blocks.append({"type": "section", "text": {"type": "mrkdwn",
                            "text": f"*[{r['pattern_label']}]* `{r['ticker']}` {r['name']}{sector_str}  "
