@@ -52,6 +52,7 @@ with open(os.path.join(BASE_DIR, 'config.json'), encoding='utf-8') as f:
     CFG = json.load(f)
 MA_PERIOD = CFG.get('ma_period', 10)
 WEBHOOK = CFG.get('slack_webhook_url_discovery', '')
+STOCK_INFO = CFG.get('stocks', {})  # 티커 -> [한글명, 섹터/테마] — 김학주 관심종목 목록과 겹치면 재사용
 
 ORDER_MONTHS    = 2   # 극점(고점/저점) 판정 시 좌우 몇 "개월" 이내 최댓값/최솟값이어야 하는지
 LOOKBACK_MONTHS = 60  # 5년 — 원서 실전 사례(카카오 2~3년, S&P500 3년, 호치민 4년 등)에 맞춤
@@ -255,7 +256,34 @@ def get_revenue_growth(ticker: str) -> float | None:
         return None
 
 
+def get_earnings_growth(ticker: str) -> float | None:
+    """전년동기대비 이익성장률(yfinance 'earningsGrowth') — 매출은 늘어도 이익이
+    안 늘거나 적자가 커지는 종목을 걸러내기 위한 참고 지표. 데이터 없으면 None
+    (표시만 안 됨, 필터에서 제외하지는 않음 — 매출성장률 필터와 달리 하드 컷 아님).
+    """
+    try:
+        info = yf.Ticker(ticker).info
+        g = info.get('earningsGrowth')
+        return float(g) if g is not None else None
+    except Exception:
+        return None
+
+
 BULLISH_FINDERS = (find_ssangbadak, find_samjungbadak, find_inverse_hns)
+
+
+def _consolidate(results: list[dict]) -> list[dict]:
+    """같은 종목이 여러 패턴에 동시에 걸리면 한 줄로 합친다 (예: 쌍바닥+삼중바닥)."""
+    merged: dict[str, dict] = {}
+    for r in results:
+        t = r['ticker']
+        if t not in merged:
+            merged[t] = {**r, 'patterns': [r['pattern']]}
+        elif r['pattern'] not in merged[t]['patterns']:
+            merged[t]['patterns'].append(r['pattern'])
+    for r in merged.values():
+        r['pattern_label'] = '+'.join(r['patterns'])
+    return list(merged.values())
 
 
 def scan_bullish(universe: list[tuple[str, str]], label: str) -> list[dict]:
@@ -277,11 +305,13 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> list[dict]:
                 results.append(r)
     print(' ' * 40, end='\r')
 
-    print(f'  기술적 필터 통과 {len(results)}건 — 성장성 확인 중...')
+    consolidated = _consolidate(results)
+    print(f'  기술적 필터 통과 {len(consolidated)}종목 — 성장성 확인 중...')
     survivors = []
-    for r in results:
+    for r in consolidated:
         g = get_revenue_growth(r['ticker'])
         r['revenue_growth'] = g
+        r['earnings_growth'] = get_earnings_growth(r['ticker'])  # 참고용 표시만, 필터 아님
         if g is not None and g >= MIN_REVENUE_GROWTH:
             survivors.append(r)
     return survivors
@@ -296,10 +326,15 @@ def print_report(results: list[dict], label: str):
     for r in results:
         g = r['revenue_growth']
         g_str = f"{g*100:+.0f}%" if g is not None else "N/A"
+        e = r.get('earnings_growth')
+        e_str = f"{e*100:+.0f}%" if e is not None else "N/A"
         ma10_str = f"(10월이평 {r['cur_ma10']:,.2f})" if r.get('cur_ma10') else ""
-        print(f"  [{r['pattern']}] {r['ticker']:<8} {r['name']:<20} 현재가 {r['cur_close']:,.2f} {ma10_str}  매출성장률 {g_str}")
+        sector = STOCK_INFO.get(r['ticker'], [None, None])[1]
+        sector_str = f" [{sector}]" if sector else ""
+        print(f"  [{r['pattern_label']}] {r['ticker']:<8} {r['name']:<20}{sector_str} 현재가 {r['cur_close']:,.2f} {ma10_str}  매출성장률 {g_str}  이익성장률 {e_str}")
     print(f"\n  총 {len(results)}건 — ⚠️ 1차 스크리너 결과입니다. 반드시 차트로 육안 재확인 후 매매 판단하세요.")
     print(f"  ⚠️ 매출성장률은 매출 규모가 작은 회사일수록 왜곡(과장)될 수 있음 — 절대수치도 같이 확인할 것")
+    print(f"  ⚠️ 이익성장률은 참고용 표시일 뿐 필터링에는 안 씀 — 매출은 늘어도 적자면 여기서 걸러내세요")
     print('=' * 100 + '\n')
 
 
@@ -326,9 +361,13 @@ def send_slack(results: list[dict], label: str):
         for r in results[:30]:  # 슬랙 블록 50개 하드리밋 감안 여유있게 상위 30건만
             g = r['revenue_growth']
             g_str = f"{g*100:+.0f}%" if g is not None else "N/A"
+            e = r.get('earnings_growth')
+            e_str = f"{e*100:+.0f}%" if e is not None else "N/A"
+            sector = STOCK_INFO.get(r['ticker'], [None, None])[1]
+            sector_str = f"  _{sector}_" if sector else ""
             blocks.append({"type": "section", "text": {"type": "mrkdwn",
-                           "text": f"*[{r['pattern']}]* `{r['ticker']}` {r['name']}  "
-                                   f"현재가 {r['cur_close']:,.2f}  매출성장률 {g_str}"}})
+                           "text": f"*[{r['pattern_label']}]* `{r['ticker']}` {r['name']}{sector_str}  "
+                                   f"현재가 {r['cur_close']:,.2f}  매출성장률 {g_str}  이익성장률 {e_str}"}})
         if len(results) > 30:
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn",
                            "text": f"_외 {len(results)-30}건 생략 — 워크플로우 로그 참고_"}]})
@@ -349,13 +388,17 @@ if __name__ == '__main__':
     p.add_argument('universe', choices=['nasdaq100', 'sp500', 'kospi'], nargs='?', default='nasdaq100')
     args = p.parse_args()
 
+    def _name(t):
+        # config.json의 stocks(김학주 관심종목)에 한글명이 있으면 그걸 쓰고, 없으면 티커 그대로
+        return STOCK_INFO[t][0] if t in STOCK_INFO else t
+
     if args.universe == 'nasdaq100':
         from nasdaq100_scan import get_ndx100_tickers
-        universe = [(t, t) for t in get_ndx100_tickers()]
+        universe = [(t, _name(t)) for t in get_ndx100_tickers()]
         label = 'NASDAQ100'
     elif args.universe == 'sp500':
         from sp500_scan import get_sp500_tickers
-        universe = [(t, t) for t in get_sp500_tickers()]
+        universe = [(t, _name(t)) for t in get_sp500_tickers()]
         label = 'S&P500'
     else:
         from testa_scan import get_universe
