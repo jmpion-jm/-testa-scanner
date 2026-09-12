@@ -89,7 +89,10 @@ def main():
         code = row[CODE_COL - 1].strip()
         if code in prices and prices[code] is not None:
             cell = gspread.utils.rowcol_to_a1(i, PRICE_COL)
-            updates.append({'range': cell, 'values': [[f'{prices[code]:,.0f}원']]})
+            # 텍스트("22,515원")로 쓰면 다른 열(평가손익/수익률 등)의 계산 수식이
+            # 깨짐 — 다른 정상 셀들처럼 순수 숫자로 써야 기존 셀 서식이 "원"
+            # 표시를 자동으로 붙여주면서 계산도 정상 작동함.
+            updates.append({'range': cell, 'values': [[round(prices[code])]]})
 
     if updates:
         ws.batch_update(updates)
