@@ -311,8 +311,14 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> list[dict]:
         fund = get_fundamentals(t)
         r['revenue_growth'] = fund['revenue_growth']
         r['earnings_growth'] = fund['earnings_growth']  # 참고용 표시만, 필터 아님
+        curated_sector = STOCK_INFO[t][1] if t in STOCK_INFO else None
+        if curated_sector == '추천':
+            # config.json 초기에 등록된 4종목(LHX/ASTS/NVDA/IONQ)은 실제 섹터가 아니라
+            # "추천" 플레이스홀더만 있음 — 이 경우엔 이름은 그대로 쓰되 섹터만 yfinance로 대체
+            curated_sector = None
         if t in STOCK_INFO:
-            r['name'], r['sector'] = STOCK_INFO[t][0], STOCK_INFO[t][1]
+            r['name'] = STOCK_INFO[t][0]
+            r['sector'] = curated_sector or fund['sector']
         else:
             r['name'] = fund['long_name'] or t
             r['sector'] = fund['sector']
