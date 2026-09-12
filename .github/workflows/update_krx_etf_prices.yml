@@ -1,0 +1,31 @@
+name: 구글시트 국내 ETF 단가 자동 업데이트 (평일 15:50 KST)
+
+on:
+  schedule:
+    - cron: '50 6 * * 1-5'   # 평일 UTC 06:50 = KST 15:50 (한국장 마감 직후)
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Python 설정
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: Google 인증 파일 생성
+        run: echo '${{ secrets.GOOGLE_CREDS_JSON }}' > credentials.json
+
+      - name: 국내 ETF 단가 업데이트 실행
+        env:
+          GSHEET_CREDS_PATH: credentials.json
+        run: python -u update_krx_etf_prices.py
