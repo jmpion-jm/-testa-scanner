@@ -1,4 +1,18 @@
 {
-  "date": "2026-09-14",
-  "signals": []
+  "date": "2026-09-15",
+  "signals": [
+    {
+      "entry": 148200,
+      "ma5": 144540,
+      "stop": 133900,
+      "target": 191100,
+      "risk_pct": 9.6,
+      "reward_pct": 28.9,
+      "qty": 0,
+      "invest": 0,
+      "max_loss": 0,
+      "ticker": "052690",
+      "name": "한전기술"
+    }
+  ]
 }
