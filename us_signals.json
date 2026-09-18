@@ -1,25 +1,35 @@
 {
-  "date": "2026-09-11",
+  "date": "2026-09-18",
   "signals": [
     {
-      "ticker": "COHR",
-      "name": "코히런트",
+      "ticker": "APH",
+      "name": "암페놀",
       "pct": 4.6
-    },
-    {
-      "ticker": "AAOI",
-      "name": "어플라이드옵토",
-      "pct": 0.9
     },
     {
       "ticker": "RTX",
       "name": "RTX",
-      "pct": 2.3
+      "pct": 0.2
     },
     {
-      "ticker": "CRS",
-      "name": "카펜터테크",
-      "pct": 2.3
+      "ticker": "ADI",
+      "name": "아날로그디바이스",
+      "pct": 2.4
+    },
+    {
+      "ticker": "CEVA",
+      "name": "세바Inc",
+      "pct": 3.1
+    },
+    {
+      "ticker": "SHOP",
+      "name": "쇼피파이",
+      "pct": 0.6
+    },
+    {
+      "ticker": "GOOGL",
+      "name": "알파벳",
+      "pct": 1.8
     }
   ]
 }
