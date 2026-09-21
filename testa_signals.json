@@ -1,18 +1,4 @@
 {
-  "date": "2026-09-18",
-  "signals": [
-    {
-      "entry": 37200,
-      "ma5": 37000,
-      "stop": 36200,
-      "target": 40200,
-      "risk_pct": 2.7,
-      "reward_pct": 8.1,
-      "qty": 0,
-      "invest": 0,
-      "max_loss": 0,
-      "ticker": "006360",
-      "name": "GS건설"
-    }
-  ]
+  "date": "2026-09-21",
+  "signals": []
 }
