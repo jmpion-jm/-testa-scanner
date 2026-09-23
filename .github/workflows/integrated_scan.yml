@@ -1,0 +1,31 @@
+name: 월봉매매법 통합 스캔 (월봉+주봉+패턴+매출이익성장, 평일 16:45 KST)
+
+on:
+  schedule:
+    - cron: '45 7 * * 1-5'   # UTC 07:45 = KST 16:45, 월~금 (us_weekly_scan.py와 5분 분산)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Python 설정
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: config.json 생성
+        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
+
+      - name: 통합 스캔 실행 (월봉+주봉+패턴+매출·영업이익성장)
+        run: python -u integrated_scan.py slack
