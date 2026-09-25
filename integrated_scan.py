@@ -211,16 +211,21 @@ def print_report(buy_candidates, watch_list, skipped):
 
     if not buy_candidates:
         print('  매수 후보 없음 (월봉MA10 위 + 주봉눌림목 5% 이내 종목 없음)')
+    else:
+        print(f'  ✅ 아래 {len(buy_candidates)}종목 전부 지금 매수 조건(월봉+주봉) 충족 — 군 구분은 매수가능 여부가')
+        print('     아니라 참고용 확신도 순위일 뿐(패턴·매출·이익은 원서에 없는 추가 참고지표)')
+        print()
     for tier in (1, 2, 3):
         rows = [c for c in buy_candidates if tier_of(c) == tier]
         if not rows:
             continue
-        label = {1: '1군 — 패턴돌파 + 매출·이익 동반성장 전부 충족 (최우선)',
-                  2: '2군 — 패턴돌파 또는 매출·이익 동반성장 중 하나 충족',
-                  3: '3군 — 월봉+주봉만 충족 (매수는 가능, 확신도 보통)'}[tier]
+        label = {1: '1군 [매수가능] — 참고지표(패턴돌파+매출·이익 동반성장) 전부 충족, 확신도 최상',
+                  2: '2군 [매수가능] — 참고지표 일부만 충족, 확신도 중간',
+                  3: '3군 [매수가능] — 참고지표는 아직인데 월봉+주봉 조건만으로 매수가능'}[tier]
         print(f'  [{label}]')
         for c in rows:
-            pat = f"{c['pattern']}{'(돌파)' if c['broke_up'] else '(미돌파)'}" if c['pattern'] else '패턴없음'
+            pat = (f"패턴참고:{c['pattern']}·{'넥라인돌파확정' if c['broke_up'] else '넥라인아직(형성중)'}"
+                   if c['pattern'] else '패턴참고:없음')
             print(f"    {c['ticker']:<6} {c['name']:<14} 월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
                   f" | {pat} | 매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
         print()
@@ -242,8 +247,11 @@ def send_slack(buy_candidates, watch_list, skipped):
     if not url:
         return
     now = datetime.today().strftime('%Y-%m-%d')
-    lines = [f'*월봉매매법 통합 스캔* ({now})', '_공식 신호는 월봉MA10뿐 — 아래는 확신도 우선순위_']
-    tier_labels = {1: '🥇 1군(패턴돌파+매출·이익 동반성장)', 2: '🥈 2군(둘 중 하나 충족)', 3: '🥉 3군(월봉+주봉만)'}
+    lines = [f'*월봉매매법 통합 스캔* ({now})',
+             '_공식 매수신호는 월봉MA10뿐. 아래 종목은 전부 이미 매수조건(월봉+주봉) 충족 —_',
+             '_군 구분은 매수가능 여부가 아니라 패턴·매출·이익(참고지표) 확신도 순위일 뿐_']
+    tier_labels = {1: '🥇 1군 [매수가능] 참고지표 전부 충족(최상)', 2: '🥈 2군 [매수가능] 참고지표 일부 충족',
+                   3: '🥉 3군 [매수가능] 참고지표 아직(월봉+주봉만)'}
     any_row = False
     for tier in (1, 2, 3):
         rows = [c for c in buy_candidates if tier_of(c) == tier]
@@ -252,7 +260,8 @@ def send_slack(buy_candidates, watch_list, skipped):
         any_row = True
         lines.append(f'\n*{tier_labels[tier]}*')
         for c in rows:
-            pat = f"{c['pattern']}{'✅돌파' if c['broke_up'] else '❌미돌파'}" if c['pattern'] else '패턴없음'
+            pat = (f"패턴참고:{c['pattern']}·{'넥라인돌파확정' if c['broke_up'] else '넥라인아직'}"
+                   if c['pattern'] else '패턴참고:없음')
             lines.append(f"`{c['ticker']}` {c['name']}  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
                           f"  {pat}  매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
     if not any_row:
