@@ -1,35 +1,45 @@
 {
-  "date": "2026-09-18",
+  "date": "2026-09-25",
   "signals": [
     {
-      "ticker": "APH",
-      "name": "암페놀",
-      "pct": 4.6
+      "ticker": "IONQ",
+      "name": "아이온큐",
+      "pct": 1.5
     },
     {
-      "ticker": "RTX",
-      "name": "RTX",
-      "pct": 0.2
+      "ticker": "COHR",
+      "name": "코히런트",
+      "pct": 3.8
     },
     {
-      "ticker": "ADI",
-      "name": "아날로그디바이스",
-      "pct": 2.4
+      "ticker": "GLW",
+      "name": "코닝",
+      "pct": 1.7
+    },
+    {
+      "ticker": "CRSP",
+      "name": "크리스퍼테라퓨틱스",
+      "pct": 4.3
     },
     {
       "ticker": "CEVA",
       "name": "세바Inc",
-      "pct": 3.1
-    },
-    {
-      "ticker": "SHOP",
-      "name": "쇼피파이",
-      "pct": 0.6
+      "pct": 17.2
     },
     {
       "ticker": "GOOGL",
       "name": "알파벳",
-      "pct": 1.8
+      "pct": 0.5
+    },
+    {
+      "ticker": "VISN",
+      "name": "VISN(구CommScope)",
+      "pct": 4.0
+    },
+    {
+      "ticker": "TEL",
+      "name": "TE Connectivity",
+      "pct": 0.4
     }
   ]
 }
