@@ -125,9 +125,10 @@ def diff(prev: dict, cur: dict) -> list:
 
 # ------------------------------------------------------------------ 시세·판정
 def yf_ticker(code: str) -> list:
-    if code.isalpha():
-        return [code]
-    return [code + '.KS', code + '.KQ']
+    """숫자로 시작하는 6자리 코드(예: 005930, 0023A0) = 한국 → .KS 다음 .KQ. 그 외(GOOGL, MOG-A, 5802.T)는 그대로."""
+    if len(code) == 6 and code[0].isdigit() and '.' not in code:
+        return [code + '.KS', code + '.KQ']
+    return [code]
 
 
 def monthly(code):

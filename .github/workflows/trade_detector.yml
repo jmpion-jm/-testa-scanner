@@ -1,4 +1,4 @@
-name: 매매 자동 감지 (구글시트 보유수량 변화 → 규칙 판정, 매일 08:00 KST)
+name: '매매 자동 감지 + 검증기록 (구글시트, 매일 08:00 KST)'
 
 # 2026-09-26 사용자 요청: 매수·매도를 자동으로 알 수 있게. 저장소가 공개라서 보유 내역·매매기록은
 # 커밋하지 않고 전부 구글시트 탭('_보유스냅샷', '매매기록(자동)')에 저장한다 — trade_detector.py 참고.
@@ -35,3 +35,9 @@ jobs:
         env:
           GSHEET_CREDS_PATH: credentials.json
         run: python -u trade_detector.py
+
+      - name: 검증기록 갱신 (추천·실제 성과 — 월이 바뀌면 슬랙 요약)
+        if: always()
+        env:
+          GSHEET_CREDS_PATH: credentials.json
+        run: python -u performance_tracker.py

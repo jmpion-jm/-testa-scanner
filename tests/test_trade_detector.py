@@ -88,12 +88,38 @@ def test_diff_and_rows():
     check('수량 2배·매입금액 동일 = 분할 추정(매매 아님)', a[4].startswith('수량조정') and a[10] == '기록만', f'실제={a}')
 
 
+def test_tracker_exit():
+    """검증기록: 추천은 진입월 다음 달부터 첫 '월말 종가 < 10이평' 달 종가에 청산 (원서 매도 규칙)."""
+    print('\n[검증기록 청산 규칙]')
+    import numpy as np, pandas as pd
+    import book_patterns as bkp
+    import performance_tracker as pt
+    closes = [100.0] * 12 + [90, 110, 120, 95, 130]          # 13번째(90)→14번째 110 돌파, 16번째 95 이탈
+    idx = pd.date_range('2025-01-01', periods=len(closes), freq='MS')
+    c = np.array(closes)
+    df = pd.DataFrame({'Open': np.r_[c[0], c[:-1]], 'High': c * 1.01, 'Low': c * 0.99, 'Close': c, 'Volume': 1.0}, index=idx)
+    d = bkp.prepare(df)
+    orig_m, orig_c = pt.monthly_d, pt.td.completed_index
+    pt.monthly_d = lambda t: d
+    pt.td.completed_index = lambda dd: len(dd) - 1
+    try:
+        r = {'티커': 'X', '진입월': idx[13].strftime('%Y-%m'), '진입가': 110.0, '상태': '보유중'}
+        pt.update_open_reco(r, '2026-01-01')
+    finally:
+        pt.monthly_d, pt.td.completed_index = orig_m, orig_c
+    check('10이평 이탈 달(95)에 청산', r['상태'] == '청산' and r['청산가'] == 95.0 and r['청산월'] == idx[15].strftime('%Y-%m'), f'실제={r}')
+    check('수익률 = 95/110 − 1', r['수익률'] == f'{95 / 110 - 1:+.1%}', f'실제={r["수익률"]}')
+    check('티커 변환: MOG-A·5802.T는 그대로, 0023A0은 한국', pt.td.yf_ticker('MOG-A') == ['MOG-A'] and pt.td.yf_ticker('5802.T') == ['5802.T']
+          and pt.td.yf_ticker('0023A0')[0] == '0023A0.KS')
+
+
 if __name__ == '__main__':
     print('=' * 60)
     print('  매매 자동 감지(trade_detector) 로직 테스트')
     print('=' * 60)
     test_parse()
     test_diff_and_rows()
+    test_tracker_exit()
     print('\n' + '=' * 60)
     if failures:
         print(f'  실패 {len(failures)}건: {", ".join(failures)}')
