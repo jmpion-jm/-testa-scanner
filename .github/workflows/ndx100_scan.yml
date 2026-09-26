@@ -2,7 +2,7 @@ name: NASDAQ 100 월봉 MA10 스캔 (매월 말일)
 
 on:
   schedule:
-    - cron: '20 7 28-31 * *'   # 매월 28~31일 UTC 07:20 = KST 16:20
+    - cron: '20 22 28-31 * *'   # 매월 28~31일 UTC 22:20 = KST 다음날 07:20 — 미국장 마감 후, 말일 아니면 스크립트가 스킵
   workflow_dispatch:
 
 jobs:

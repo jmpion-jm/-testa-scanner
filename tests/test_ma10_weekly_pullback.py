@@ -58,18 +58,25 @@ def test_weekly_dual_filter():
     daily_lows  = [95.0, 96.0, 94.0, 97.0, 98.0]
 
     # (월봉 prev/curr, 주봉 prev/curr, 기대 grade, 설명) — grade=None이면 결과에서 완전 제외돼야 함
+    # 월봉 (105→104): MA10=(8×100+105+104)/10=100.9 → +3.1%, 월봉MA10 위이면서 5% 이내.
+    # 2026-08-31 확정 규칙("월봉도 MA10 대비 5% 이내여야 매수 후보")이 us_weekly_scan.py에
+    # 들어간 뒤로 옛 픽스처(월봉 105→200, +81%)는 전부 제외돼 이 테스트가 9월 내내 CI에서
+    # 실패하고 있었음(2026-09-26 전체 검토에서 발견) — 코드가 아니라 픽스처를 현행 규칙에 맞춤.
+    M_OK = (105.0, 104.0)
     cases = {
         'MBELOW':   dict(m=(105.0, 90.0),  w=(105.0, 103.0), grade=None,
                           desc='월봉MA10 이탈 → 완전 제외'),
-        'WFRESH':   dict(m=(105.0, 200.0), w=(80.0, 110.0),  grade=1,
+        'MSTRETCH': dict(m=(105.0, 200.0), w=(105.0, 103.0), grade=None,
+                          desc='월봉 MA10 대비 5% 초과로 뻗음 → 제외 (2026-08-31 확정 규칙)'),
+        'WFRESH':   dict(m=M_OK, w=(80.0, 110.0),  grade=1,
                           desc='주봉 신규돌파'),
-        'WPULL':    dict(m=(105.0, 200.0), w=(105.0, 103.0), grade=2,
+        'WPULL':    dict(m=M_OK, w=(105.0, 103.0), grade=2,
                           desc='주봉 눌림목 ≤5%'),
-        'WSUPPORT': dict(m=(105.0, 200.0), w=(105.0, 108.0), grade=3,
+        'WSUPPORT': dict(m=M_OK, w=(105.0, 108.0), grade=3,
                           desc='주봉 지지권 5~10%'),
-        'WTREND':   dict(m=(105.0, 200.0), w=(105.0, 130.0), grade=4,
+        'WTREND':   dict(m=M_OK, w=(105.0, 130.0), grade=4,
                           desc='주봉 추세중 >10%'),
-        'WBELOWW':  dict(m=(105.0, 200.0), w=(105.0, 95.0),  grade=5,
+        'WBELOWW':  dict(m=M_OK, w=(105.0, 95.0),  grade=5,
                           desc='주봉MA10 이탈'),
     }
 
@@ -97,8 +104,10 @@ def test_weekly_dual_filter():
 
     print('\n[us_weekly_scan] 월봉×주봉 이중필터 등급 검증')
 
-    check('MBELOW(월봉MA10 이탈) 종목은 완전히 제외됨', 'MBELOW' not in by_ticker,
-          f'실제 포함 여부={"MBELOW" in by_ticker}')
+    for ticker, spec in cases.items():
+        if spec['grade'] is None:
+            check(f'{ticker} 완전히 제외됨 ({spec["desc"]})', ticker not in by_ticker,
+                  f'실제 포함 여부={ticker in by_ticker}')
 
     for ticker, spec in cases.items():
         if spec['grade'] is None:

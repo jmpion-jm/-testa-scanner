@@ -2,7 +2,7 @@ name: S&P 500 월봉 MA10 스캔 (매월 말일)
 
 on:
   schedule:
-    - cron: '30 7 28-31 * *'   # 매월 28~31일 UTC 07:30 = KST 16:30
+    - cron: '30 22 28-31 * *'   # 매월 28~31일 UTC 22:30 = KST 다음날 07:30 — 미국장 마감 후, 말일 아니면 스크립트가 스킵
   workflow_dispatch:
 
 jobs:

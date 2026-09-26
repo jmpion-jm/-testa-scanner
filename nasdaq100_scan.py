@@ -310,6 +310,12 @@ def save_signals(results: list):
 
 
 if __name__ == '__main__':
+    # 2026-09-26: 워크플로우가 28~31일 매일 도는데 말일 확인이 없어 한 달에 최대 4번,
+    # 그것도 미완성 월봉으로 발송하고 있었음 — 스케줄 실행은 말일 미국장 마감 후에만 진행.
+    import market_time as mt
+    if not mt.should_run_monthly_scan():
+        print('말일 미국장 마감 후가 아니라 스킵 (market_time.should_run_monthly_scan)')
+        sys.exit(0)
     print(f'\nNASDAQ 100 월봉 MA10 스캔  {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     print(f'기준: MA{MA_PERIOD} | 추세권 +{ENTRY_LIMIT}% 이내\n')
 

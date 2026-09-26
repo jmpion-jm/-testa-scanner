@@ -72,15 +72,13 @@ def _is_pension(accounts: list) -> bool:
 
 # ── 유틸 ─────────────────────────────────────────────────────
 def is_last_trading_day() -> bool:
-    """오늘이 이번 달 마지막 거래일(금요일 또는 말일)에 해당하는지"""
-    today = date.today()
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    # 이번달 마지막 평일 계산
-    for d in range(last_day, 0, -1):
-        wd = date(today.year, today.month, d).weekday()
-        if wd < 5:   # 월~금
-            return today.day == d
-    return False
+    """미국 기준 이번 달 마지막 평일이고 그날 장이 이미 마감됐는지.
+
+    2026-09-26 수정: 예전엔 날짜만 봤는데, 월말 실행이 KST 16:10(미국 개장 전)이라
+    말일 종가가 아니라 전날 종가로 월말 매도 결정을 내리고 있었다. 이제 마감 이후
+    (UTC 20시~다음날 06시)에만 True — 판정 로직은 market_time.py 참고."""
+    import market_time as mt
+    return mt.is_monthend_after_close()
 
 
 def fetch(ticker: str, period='3y', interval='1mo') -> pd.DataFrame:
@@ -1117,6 +1115,23 @@ def run(mode: str = 'auto'):
     """
     print(f'\n스캔 시작... ({datetime.now().strftime("%Y-%m-%d %H:%M")})')
 
+    # ── 어떤 알림을 보낼지 먼저 결정 (2026-09-26) ─────────────────
+    # 워크플로우가 금요일 아침(UTC 07시, 주간용)과 28~31일 저녁(UTC 22시, 월말용)에 돈다.
+    # 주간 = 금요일 아침 실행에서만, 월말 = 말일 미국장 마감 후 실행에서만 보낸다.
+    # 보낼 게 없는 실행(28~31일 중 말일이 아닌 날 저녁)은 스캔·신호기록 전에 바로 끝낸다
+    # — 안 그러면 매번 tracker에 같은 신호가 중복 기록된다.
+    import market_time as mt
+    now = mt.utc_now()
+    after_close = mt.is_after_us_close(now)
+    is_friday   = mt.us_ref_date(now).weekday() == 4
+    is_monthend = mt.is_monthend_after_close(now)
+    do_monthly  = mode == 'monthly' or (mode == 'auto' and is_monthend)
+    do_weekly   = mode == 'weekly' or (mode == 'auto' and is_friday and not after_close and not do_monthly)
+    if mode == 'auto' and not (do_monthly or do_weekly):
+        print(f'보낼 알림 없음 (미국기준 {mt.us_ref_date(now)}, 마감후={after_close}, '
+              f'금요일={is_friday}, 월말={is_monthend}) — 종료')
+        return
+
     # ── 탑다운 분석 (성승현 1원칙) ──────────────────────────────
     print('탑다운 글로벌 지수 분석 중...')
     td = topdown_analysis()
@@ -1160,10 +1175,6 @@ def run(mode: str = 'auto'):
     port_pension = [r for r in port_rows if _is_pension(r.get('accounts', [r.get('account', '')]))]
     port_stocks  = [r for r in port_rows if not _is_pension(r.get('accounts', [r.get('account', '')]))]
 
-    today = date.today()
-    is_friday   = today.weekday() == 4
-    is_monthend = is_last_trading_day()
-
     if mode == 'test':
         print('\n[테스트] 개별종목 주간 알림')
         _print_blocks(build_weekly_alert(rows, port_rows=port_stocks, td=td))
@@ -1174,8 +1185,8 @@ def run(mode: str = 'auto'):
     sent = False
 
     # 월말 알림 우선 (주간보다 중요)
-    if mode == 'monthly' or (mode == 'auto' and is_monthend):
-        ym = datetime.today().strftime('%Y.%m')
+    if do_monthly:
+        ym = mt.us_ref_date(now).strftime('%Y.%m')   # 실행이 UTC 자정을 넘겨도 마감한 달로 표기
 
         # ① 김학주교수 채널 — 개별종목
         blocks = build_monthly_alert(rows, port_rows=port_stocks, td=td)
@@ -1189,7 +1200,7 @@ def run(mode: str = 'auto'):
             print(f'연금계좌 월말 알림 전송: {"완료" if ok2 else "실패"}')
         sent = True
 
-    if mode == 'weekly' or (mode == 'auto' and is_friday and not sent):
+    if do_weekly and not sent:
         # ① 김학주교수 채널 — 개별종목
         blocks = build_weekly_alert(rows, port_rows=port_stocks, td=td)
         ok = send_slack(blocks, text='[주간] 개별종목 모니터링', url=WEBHOOK_URL)

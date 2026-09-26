@@ -50,3 +50,6 @@ jobs:
 
       - name: 회귀 테스트 실행 (월봉×주봉 이중필터 로직)
         run: python -u tests/test_ma10_weekly_pullback.py
+
+      - name: 회귀 테스트 실행 (월말 알림 시점 — 미국장 마감 후만)
+        run: python -u tests/test_market_time.py

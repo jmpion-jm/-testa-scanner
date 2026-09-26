@@ -398,6 +398,12 @@ if __name__ == '__main__':
     p.add_argument('universe', choices=['nasdaq100', 'sp500', 'kospi'], nargs='?', default='nasdaq100')
     args = p.parse_args()
 
+    # 2026-09-26: 28~31일 매일 미완성 월봉으로 발송하던 문제 — 말일 미국장 마감 후에만 진행.
+    import market_time as mt
+    if not mt.should_run_monthly_scan():
+        print('말일 미국장 마감 후가 아니라 스킵 (market_time.should_run_monthly_scan)')
+        sys.exit(0)
+
     def _name(t):
         # config.json의 stocks(김학주 관심종목)에 한글명이 있으면 그걸 쓰고, 없으면 티커 그대로
         return STOCK_INFO[t][0] if t in STOCK_INFO else t

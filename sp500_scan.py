@@ -326,6 +326,11 @@ def save_signals(results: list):
 
 if __name__ == '__main__':
     from datetime import datetime
+    # 2026-09-26: 28~31일 매일 미완성 월봉으로 발송하던 문제 — 말일 미국장 마감 후에만 진행.
+    import market_time as mt
+    if not mt.should_run_monthly_scan():
+        print('말일 미국장 마감 후가 아니라 스킵 (market_time.should_run_monthly_scan)')
+        sys.exit(0)
     print(f'\nS&P 500 월봉 MA10 스캔  {datetime.now().strftime("%Y-%m-%d %H:%M")}')
     print(f'기준: MA{MA_PERIOD} | 추세권 +{ENTRY_LIMIT}% 이내\n')
 
