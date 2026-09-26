@@ -131,6 +131,19 @@ def _book_sig(df: pd.DataFrame):
         return None
 
 
+def _book_box(df: pd.DataFrame) -> bool:
+    """박스권 안(상단 돌파 전, 원서 p.309) — 매수 신호의 후순위 표시용(book_patterns.in_box)."""
+    try:
+        import book_patterns as bkp
+        bd = bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']])
+        return bkp.in_box(bd, len(bd) - 1)
+    except Exception:
+        return False
+
+
+BOX_MARK = '  📦박스권 안(상단 돌파 전, p.309)'
+
+
 def _is_decline3(df: pd.DataFrame) -> bool:
     """최근 3개월 연속 월봉 종가 하락 여부 (3개월 연속 하락 경고)"""
     if len(df) < 3:
@@ -475,6 +488,7 @@ def scan_portfolio(holdings: list) -> list:
                 'nollim':   _check_nollim_buyable(df, pct),
                 'jangdae':  _check_jangdae_zone(df),
                 'sig':      _book_sig(df),
+                'box':      _book_box(df),
             })
         except Exception as e:
             print(f'  [스캔오류] {h["name"]} ({h["ticker"]}): {e}')
@@ -549,6 +563,7 @@ def scan_all() -> list:
                 nollim=nollim,
                 jangdae=_check_jangdae_zone(df),
                 sig=_book_sig(df),
+                box=_book_box(df),
             ))
         except:
             pass
@@ -631,7 +646,8 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
         for r in sig_rows:
             accs = ', '.join(r['accounts'])
             vol = f"  {r['nollim'].get('reason', '')}" if key == '지지' and r.get('nollim') else ''
-            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*{vol}'))
+            box = BOX_MARK if r.get('box') else ''
+            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*{vol}{box}'))
 
     # 이탈 중 (이미 아래)
     below = [r for r in port_rows if not r['above'] and not r['broke'] and not r.get('death')]
@@ -829,8 +845,9 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     # ── 매수 신호 (원서 원칙, 2026-09-26) ──
     # 매수 = 이번 달 종가로 확정된 돌파(후킹 캔들, p.256) 또는 10이평 지지 반등(p.340).
     # 이전 판의 "+5% 이내 지지권 / +5~15% 신규 진입 주의 / +15% 초과 매수 금지" 구간은 원서에 없어 제거.
-    fresh = [r for r in above if r.get('sig') == '돌파']
-    dip   = [r for r in above if r.get('sig') == '지지']
+    # 박스권 안(상단 돌파 전, p.309)은 제외하지 않고 목록 아래로 — backtest_box_range.py(2026-09-26 사용자 결정)
+    fresh = sorted([r for r in above if r.get('sig') == '돌파'], key=lambda r: bool(r.get('box')))
+    dip   = sorted([r for r in above if r.get('sig') == '지지'], key=lambda r: bool(r.get('box')))
     hold  = sorted([r for r in above if not r.get('sig')], key=lambda r: r['pct'])
 
     # (2026-09-26) 이전 판의 "글로벌 지수 50% 미만 → 약세장 주의" 배너는 원서에 없는 수치라 제거.
@@ -846,7 +863,7 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
                 f'*현재가:* {r["close"]:,.2f}',
                 f'*10이평:* {r["ma"]:,.2f}',
                 f'*대비:* +{r["pct"]}%',
-                f'*거래량:* {r["vol_r"]:.1f}x  {vol_lbl}',
+                f'*거래량:* {r["vol_r"]:.1f}x  {vol_lbl}' + (BOX_MARK if r.get('box') else ''),
             ]))
         blocks.append(_divider())
 
@@ -860,7 +877,7 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
                 f'*섹터:* {r["sector"]}',
                 f'*현재가:* {r["close"]:,.2f}',
                 f'*MA10:* {r["ma"]:,.2f}  (*+{r["pct"]}%*)',
-                f'*{nl.get("reason", "눌림 거래량 정보 없음")}*',
+                f'*{nl.get("reason", "눌림 거래량 정보 없음")}*' + (BOX_MARK if r.get('box') else ''),
             ]))
         blocks.append(_divider())
 
@@ -940,7 +957,8 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
     sell_kr  = [r for r in port_rows if r.get('broke') and is_korean(r['ticker'])]
     sell_us  = [r for r in port_rows if r.get('broke') and not is_korean(r['ticker'])]
     sell_etf = [r for r in etf_rows  if r.get('broke')]
-    buy_us   = [r for r in rows      if r.get('above') and r.get('sig') in ('돌파', '지지')]
+    buy_us   = sorted([r for r in rows if r.get('above') and r.get('sig') in ('돌파', '지지')],
+                      key=lambda r: bool(r.get('box')))   # 박스권 안(p.309)은 뒤로
     buy_etf  = [r for r in etf_rows  if r.get('fresh')]
 
     # Testa 신호 읽기 (당일 저장 파일)
@@ -982,7 +1000,7 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
     for r in buy_us[:3]:
         sig = '돌파' if r.get('sig') == '돌파' else '10이평 지지'
         timeline.append(('22:30~', '미래에셋',
-            f"🟢 {r['ticker']} {r['name']} 매수  ({sig} {r['pct']:+.1f}%)"))
+            f"🟢 {r['ticker']} {r['name']} 매수  ({sig} {r['pct']:+.1f}%)" + (' 📦박스권' if r.get('box') else '')))
 
     # 연금계좌 (시간 무관)
     for r in sell_etf:

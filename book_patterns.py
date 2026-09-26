@@ -474,6 +474,26 @@ def buy_signal(d: pd.DataFrame, t: int) -> str | None:
     return None
 
 
+BOX_LOOKBACK = 12     # 박스권 판정 구간(직전 봉 수) — 구현값(원서 수치 없음)
+BOX_RANGE_MAX = 0.30  # 직전 12봉 (최고가/최저가 − 1) ≤ 30%면 박스 — 구현값. 근거: backtest_box_range.py(2026-09-26)
+
+
+def in_box(d: pd.DataFrame, t: int) -> bool:
+    """박스권 안(상단 돌파 전) — 원서 p.308~309 "혼조 추세(박스권)… 박스권이 상방 또는 하방으로 돌파되는 것을
+    확인한 뒤 매매", p.316 박스권 돌파매매. 원서에 수치가 없어 비교 검증으로 정한 구현값을 쓴다:
+    직전 12봉 고저 폭 ≤ 30% 이고 이번 봉 종가가 그 최고가를 넘지 못함.
+    매수 제외가 아니라 **후순위 표시**용(2026-09-26 사용자 결정) — 88종목 검증에서 박스 안 신호는 평균 +9.6%로
+    나머지(+28.9%)보다 4개 구간 모두 낮았지만 손실 신호는 아니었음(승률 46%, -20%↓ 0.6%). 매수 여부는 buy_signal."""
+    if t < BOX_LOOKBACK:
+        return False
+    hi = d['High'].iloc[t - BOX_LOOKBACK:t].max()
+    lo = d['Low'].iloc[t - BOX_LOOKBACK:t].min()
+    return bool(lo > 0 and hi / lo - 1 <= BOX_RANGE_MAX and d['Close'].iat[t] <= hi)
+
+
+BOX_LABEL = '📦박스권 안(상단 돌파 전, p.309)'
+
+
 
 # ================================================================== 1·4·5·6장 규칙 (매매법_전체_구현명세.md)
 def add_long_mas(d: pd.DataFrame) -> pd.DataFrame:

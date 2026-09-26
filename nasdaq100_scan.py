@@ -156,6 +156,7 @@ def scan_ndx100(tickers: list) -> list:
                 'ma10': round(ma10, 2), 'pct': round(pct, 1),
                 'signal': signal, 'priority': priority,
                 'fresh': fresh, 'decline3': decline3,
+                'box': bool(sig) and bkp.in_box(d, n),   # 박스권 안(p.309) — 후순위 표시
             })
         except Exception:
             continue
@@ -169,7 +170,7 @@ def print_results(results: list):
     if not results:
         print('신호 없음')
         return
-    df = pd.DataFrame(results).sort_values(['priority', 'pct'])
+    df = pd.DataFrame(results).sort_values(['priority', 'box', 'pct'])
     print(f'\n{"="*60}')
     print(f'  NASDAQ 100 월봉 MA10 스캔 결과')
     print(f'{"="*60}')
@@ -180,7 +181,7 @@ def print_results(results: list):
         print(f'  {"티커":<8} {"현재가":>8} {"MA10":>8} {"괴리율":>7}  {"주의"}')
         print(f'  {"-"*48}')
         for _, r in group.iterrows():
-            warn = '⚠️연속하락' if r['decline3'] else ''
+            warn = ('⚠️연속하락' if r['decline3'] else '') + (' 📦박스권' if r.get('box') else '')
             print(f'  {r["ticker"]:<8} ${r["close"]:>7.2f}  ${r["ma10"]:>7.2f}  {r["pct"]:>+6.1f}%  {warn}')
 
 
@@ -189,7 +190,7 @@ def save_csv(results: list):
     if not results:
         return
     path = os.path.join(BASE, 'ndx100_scan_result.csv')
-    pd.DataFrame(results).sort_values(['priority', 'pct']).to_csv(
+    pd.DataFrame(results).sort_values(['priority', 'box', 'pct']).to_csv(
         path, index=False, encoding='utf-8-sig')
     print(f'\nCSV 저장: {path}')
 
@@ -198,14 +199,14 @@ def save_csv(results: list):
 def send_slack(results: list):
     if not WEBHOOK or not results:
         return
-    df    = pd.DataFrame(results).sort_values(['priority', 'pct'])
+    df    = pd.DataFrame(results).sort_values(['priority', 'box', 'pct'])
     today = datetime.today().strftime('%Y.%m.%d')
     fresh = df[df['priority'] == 1]
     dip   = df[df['priority'] == 2].head(10)
     trend = df[df['priority'] == 3].head(10)
 
     def fmt(r):
-        warn = ' ⚠️' if r['decline3'] else ''
+        warn = (' ⚠️' if r['decline3'] else '') + (' 📦박스권(상단 돌파 전)' if r.get('box') else '')
         return f'`{r["ticker"]}`  ${r["close"]:.2f}  *{r["pct"]:+.1f}%*{warn}'
 
     blocks = [
@@ -248,14 +249,14 @@ def send_slack(results: list):
                                 "text": f"*● 추세 진행 중 (보유 유지, 신규 매수 아님) — 상위 10종목*\n{lines}"}})
 
     # ── 실행 타임라인 ──
-    action_rows = pd.concat([fresh, dip]).sort_values('pct').head(5)
+    action_rows = pd.concat([fresh, dip]).sort_values(['box', 'pct']).head(5)
     if not action_rows.empty:
         header = f'{"시간":<9} {"계좌":<10} 행동'
         sep    = '─' * 55
         tl     = []
         for _, r in action_rows.iterrows():
             sig  = '돌파' if r['fresh'] else '10이평 지지'
-            warn = ' ⚠️연속하락' if r['decline3'] else ''
+            warn = (' ⚠️연속하락' if r['decline3'] else '') + (' 📦박스권' if r['box'] else '')
             tl.append(f'{"22:30~":<9} {"미래에셋":<10} 🟡 {r["ticker"]} ${r["close"]:.2f}  원서 매수 신호 ({sig} {r["pct"]:+.1f}%){warn}')
         table = f'```\n{header}\n{sep}\n' + '\n'.join(tl) + '\n```'
         blocks.append({"type": "divider"})

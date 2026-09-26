@@ -140,6 +140,7 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> tuple[list[dict
             'hook_date': d.index[k].strftime('%Y-%m'), 'pattern_label': _label(bull, comps),
             'quality': (bull or {}).get('quality', {}),
             'cur_close': float(d['Close'].iat[last]), 'cur_ma10': float(d['MA'].iat[last]),
+            'box': bkp.in_box(d, last),   # 박스권 안(p.309) — 후순위 표시
             **_extra(d, bull, last),
         })
     print(' ' * 50, end='\r')
@@ -161,7 +162,7 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> tuple[list[dict
             r['name'] = fund['long_name'] or t
             r['sector'] = fund['sector']
             r['theme'] = None
-    found.sort(key=lambda r: (not r['top'], not r['rev_ok'], not r['uptrend']))
+    found.sort(key=lambda r: (r['box'], not r['top'], not r['rev_ok'], not r['uptrend']))
     counts['uptrend'] = sum(r['uptrend'] for r in found)
     counts['growth'] = sum(r['rev_ok'] for r in found)
     counts['top'] = sum(r['top'] for r in found)
@@ -182,7 +183,8 @@ def _book_info(r):
 
 
 def _mark(r):
-    return ('⭐최우선 ' if r['top'] else '') + f"우상향 {'O' if r['uptrend'] else 'X'}"
+    return (('⭐최우선 ' if r['top'] and not r['box'] else '') + f"우상향 {'O' if r['uptrend'] else 'X'}"
+            + (' 📦박스권(상단 돌파 전)' if r['box'] else ''))
 
 
 def _pct(v):

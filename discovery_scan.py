@@ -102,6 +102,7 @@ def get_ma10_status(ticker: str) -> dict:
             return {}
         bd = bkp.prepare(df)
         sig = bkp.buy_signal(bd, len(bd) - 1)
+        box = bool(sig) and bkp.in_box(bd, len(bd) - 1)   # 박스권 안(p.309) — 후순위 표시
         ma10  = close.rolling(MA_PERIOD).mean()
         curr_close = float(close.iloc[-1])
         curr_ma10  = float(ma10.iloc[-1])
@@ -122,6 +123,7 @@ def get_ma10_status(ticker: str) -> dict:
             'above': above,
             'fresh': fresh,
             'sig':   sig,
+            'box':   box,
             'ret52': round(ret52, 1),
         }
     except Exception:
@@ -161,7 +163,7 @@ def scan() -> list:
         })
         print(f'  {ticker:<6} {name:<12} {signal}  {s["pct"]:+.1f}%  52주:{s["ret52"]:+.0f}%')
 
-    return sorted(results, key=lambda x: (x['priority'], x['pct']))
+    return sorted(results, key=lambda x: (x['priority'], x['box'], x['pct']))
 
 
 def send_slack(results: list):
@@ -177,7 +179,8 @@ def send_slack(results: list):
     def fmt(r):
         idx = f'`{r["index"]}`' if r['index'] != '미편입' else '🆕미편입'
         return (f'`{r["ticker"]}`  *{r["name"]}*  ${r["close"]:.1f}'
-                f'  {r["pct"]:+.1f}%  52주{r["ret52"]:+.0f}%  {idx}  _{r["sector"]}_')
+                f'  {r["pct"]:+.1f}%  52주{r["ret52"]:+.0f}%  {idx}  _{r["sector"]}_'
+                + ('  📦박스권(상단 돌파 전)' if r.get('box') else ''))
 
     blocks = [
         {"type": "header",

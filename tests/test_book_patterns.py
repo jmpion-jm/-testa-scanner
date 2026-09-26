@@ -42,7 +42,8 @@ def test_constants_locked():
     print('\n[조건값 잠금 — 명세서 §4]')
     expect = {'MA_PERIOD': 10, 'AVG_WIN': 10, 'VOL_BURST_MULT': 3.0, 'VOL_2ND': (0.7, 2.0),
               'BIG_BODY_PCT': 0.05, 'PULLBACK_VOL_IDEAL': 1 / 7,
-              'BREAK_SEARCH': 2, 'LOOKBACK': 24, 'MAX_OPPOSITE': 2, 'EQ_TOL': 0.01}
+              'BREAK_SEARCH': 2, 'LOOKBACK': 24, 'MAX_OPPOSITE': 2, 'EQ_TOL': 0.01,
+              'BOX_LOOKBACK': 12, 'BOX_RANGE_MAX': 0.30}
     for k, v in expect.items():
         check(f'{k} = {v}', getattr(bp, k) == v, f'실제={getattr(bp, k)}')
 
@@ -138,6 +139,14 @@ def test_buy_signal():
     check('10이평 한참 위 추세 진행 = 매수 신호 없음', bp.buy_signal(d, len(d) - 1) is None)
     d = bp.prepare(bars([100.0] * 12 + [105, 95]))
     check('10이평 아래 마감 = 매수 신호 없음', bp.buy_signal(d, len(d) - 1) is None)
+
+    # 박스권(p.308~309, 구현값 12개월·30% — backtest_box_range.py): 매수 제외가 아니라 후순위 표시
+    d = bp.prepare(bars([100.0, 110] * 6 + [105]))
+    check('직전 12개월 폭 ≤30% + 고점 미돌파 = 박스권 안', bp.in_box(d, len(d) - 1))
+    d = bp.prepare(bars([100.0, 110] * 6 + [120]))
+    check('박스 상단(직전 최고가) 돌파 = 박스권 아님 (p.316 박스권 돌파매매)', not bp.in_box(d, len(d) - 1))
+    d = bp.prepare(bars([100.0, 160] * 6 + [130]))
+    check('직전 12개월 폭 60% = 박스권 아님', not bp.in_box(d, len(d) - 1))
 
 
 def test_book_examples():

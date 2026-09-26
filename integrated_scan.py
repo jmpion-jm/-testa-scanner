@@ -158,7 +158,7 @@ def scan():
                 fnd = bp.get_fundamentals(ticker)
                 opinc = opinc_yoy(ticker)
                 buy_candidates.append(dict(
-                    base, signal=sig, below_now=now_close <= now_ma,
+                    base, signal=sig, below_now=now_close <= now_ma, box=bkp.in_box(d, t),
                     pattern=pattern, broke_up=bool(broke_up), hook_month=hook_month,
                     uptrend=bp.is_uptrend(ticker),
                     revenue_growth=round(fnd['revenue_growth'] * 100, 1) if fnd['revenue_growth'] is not None else None,
@@ -183,7 +183,7 @@ def scan():
 
     def score(c):
         rev = c['revenue_growth'] or 0
-        return (tier_of(c), -(rev + opinc_score(c)))
+        return (c['box'], tier_of(c), -(rev + opinc_score(c)))   # 박스권 안(p.309)은 같은 군 안에서 맨 아래
 
     buy_candidates.sort(key=score)
     watch_list.sort(key=lambda x: (x['kind'], x['m_pct']))
@@ -234,6 +234,8 @@ def _buy_line(c):
     pat = (f"원서패턴:{c['pattern']}(후킹 {c['hook_month']}" if c['pattern']
            else f"원서패턴:없음 {c['hook_month'] or ''}")
     warn = ' ⚠️지금 10이평 아래 — 이번 달 말 이탈 위험' if c['below_now'] else ''
+    if c['box']:
+        warn += ' ' + bkp.BOX_LABEL
     return (f"{c['sig_month']}말 {SIG_LABEL[c['signal']]} · 신호 후 {fmt_pct(c['since'])}{warn} | "
             f"우상향 {'O' if c['uptrend'] else 'X'} · 매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)} | {pat}")
 
