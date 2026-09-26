@@ -32,6 +32,7 @@ with open(os.path.join(BASE_DIR, 'config.json'), encoding='utf-8') as f:
     CFG = json.load(f)
 
 STOCKS = CFG['stocks']
+STOCK_THEMES = CFG.get('stock_themes', {})   # 김학주 교수 자료 기반 투자테마(업종과 별개, 참고용)
 MA_MONTH = CFG.get('ma_period', 10)
 MA_WEEK = 10
 ZONE_PCT = 5        # 주봉MA10 대비 이 %이내 = 눌림목
@@ -200,6 +201,14 @@ def fmt_opinc(c):
     return c['opinc_note'] if c['opinc_note'] else fmt_pct(c['opinc_pct'])
 
 
+def fmt_tag(ticker, sector):
+    """[업종] 또는 [업종|테마] — 테마는 김학주 교수 자료 기반 참고용, 업종과 다를 때만 붙인다."""
+    theme = STOCK_THEMES.get(ticker)
+    if theme and theme != sector:
+        return f'[{sector}|테마:{theme}]'
+    return f'[{sector}]'
+
+
 def print_report(buy_candidates, watch_list, skipped):
     now = datetime.today().strftime('%Y-%m-%d')
     print()
@@ -226,14 +235,14 @@ def print_report(buy_candidates, watch_list, skipped):
         for c in rows:
             pat = (f"패턴참고:{c['pattern']}·{'넥라인돌파확정' if c['broke_up'] else '넥라인아직(형성중)'}"
                    if c['pattern'] else '패턴참고:없음')
-            print(f"    {c['ticker']:<6} {c['name']:<14} [{c['sector']}]  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
+            print(f"    {c['ticker']:<6} {c['name']:<14} {fmt_tag(c['ticker'], c['sector'])}  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
                   f" | {pat} | 매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
         print()
 
     if watch_list:
         print(f'  [관찰 대상 — 월봉 추세는 살아있으나 매수조건(월봉·주봉 둘 다 {ZONE_PCT}%이내) 미충족]')
         for w in watch_list:
-            print(f"    {w['ticker']:<6} {w['name']:<14} [{w['sector']}]  월봉{fmt_pct(w['m_pct'])} 주봉{fmt_pct(w['w_pct'])} | 사유:{w['reason']}")
+            print(f"    {w['ticker']:<6} {w['name']:<14} {fmt_tag(w['ticker'], w['sector'])}  월봉{fmt_pct(w['m_pct'])} 주봉{fmt_pct(w['w_pct'])} | 사유:{w['reason']}")
 
     if skipped:
         print(f'\n  [판단 불가 — 데이터 조회 실패/부족으로 스킵된 종목 {len(skipped)}개 (조용히 안 넘어감)]')
@@ -262,14 +271,14 @@ def send_slack(buy_candidates, watch_list, skipped):
         for c in rows:
             pat = (f"패턴참고:{c['pattern']}·{'넥라인돌파확정' if c['broke_up'] else '넥라인아직'}"
                    if c['pattern'] else '패턴참고:없음')
-            lines.append(f"`{c['ticker']}` {c['name']} `[{c['sector']}]`  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
+            lines.append(f"`{c['ticker']}` {c['name']} `{fmt_tag(c['ticker'], c['sector'])}`  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
                           f"  {pat}  매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
     if not any_row:
         lines.append('매수 후보 없음')
     if watch_list:
         lines.append(f'\n*👀 관찰 대상 (매수조건 미충족, 조정/재돌파 시 후보 편입 가능)*')
         for w in watch_list[:10]:
-            lines.append(f"`{w['ticker']}` {w['name']} `[{w['sector']}]`  월봉{fmt_pct(w['m_pct'])} 주봉{fmt_pct(w['w_pct'])} ({w['reason']})")
+            lines.append(f"`{w['ticker']}` {w['name']} `{fmt_tag(w['ticker'], w['sector'])}`  월봉{fmt_pct(w['m_pct'])} 주봉{fmt_pct(w['w_pct'])} ({w['reason']})")
     if skipped:
         lines.append(f'\n*⚠️ 판단 불가 {len(skipped)}종목* (데이터 조회 실패/부족)')
         for tk, nm, why in skipped[:10]:
