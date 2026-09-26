@@ -56,3 +56,6 @@ jobs:
 
       - name: 회귀 테스트 실행 (원서 패턴 — 구현명세 잠금 + 원서 예시 10개 재현)
         run: python -u tests/test_book_patterns.py
+
+      - name: 회귀 테스트 실행 (매매 자동 감지 — 시트 파싱·변화 감지)
+        run: python -u tests/test_trade_detector.py
