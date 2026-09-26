@@ -7,7 +7,7 @@
 규칙(매매법_전체_구현명세.md H4 — 원서 원칙):
   추천: 김학주 관심종목(config stocks)에서 월말 확정 원서 매수 신호(돌파=후킹 p.256 / 10이평 지지 p.340)가 난 종목을
         그 달 월말 종가에 샀다고 보고(달러), 이후 처음으로 월말 종가가 10이평 아래인 달 종가에 청산.
-        이미 추적 중인(보유중) 종목에 다시 신호가 나면 새 줄을 만들지 않는다. 2026-08월말 신호부터 시작.
+        이미 추적 중인(추적중) 종목에 다시 신호가 나면 새 줄을 만들지 않는다. 2026-08월말 신호부터 시작.
   실제: 구글시트 '포트폴리오' 일반계좌 미국 종목. 진입가 = 평균매입가(원), 평가 = 현재가×원/달러(원) — 환율 포함 실제 수익.
         시트에서 수량이 0이 되면 청산(매도가는 '매매기록(자동)'의 추정 매도가, 없으면 그날 시세).
         월말 종가가 10이평 아래인데 계속 보유 중이면 비고에 "규칙상 매도 대상" 표시.
@@ -39,6 +39,11 @@ START_MONTH = '2026-08'
 ACTUAL_ACCOUNTS = {'일반계좌'}
 EXCLUDE = {'DJT'}
 STOCKS = td.CFG.get('stocks', {})
+
+
+def is_open(r):
+    """아직 청산 안 된 줄. 추천(가상 매수)은 '추적중', 실제 보유는 '보유중' — 2026-09-26 사용자 혼동("보유 14종목?")으로 구분."""
+    return r['상태'] in ('추적중', '보유중')
 
 
 def kname(t, fallback=''):
@@ -101,6 +106,9 @@ def load(sh, tab=TAB):
     head = vals[0] if vals else HEADER + ['처리월:']
     done = head[15].replace('처리월:', '').strip() if len(head) > 15 else ''
     rows = [dict(zip(HEADER, r + [''] * (len(HEADER) - len(r)))) for r in vals[1:] if r and r[0]]
+    for r in rows:   # 예전 기록 이관: 가상 추천의 '보유중' → '추적중'
+        if r['구분'] != '실제' and r['상태'] == '보유중':
+            r['상태'] = '추적중'
     return ws, rows, done
 
 
@@ -126,8 +134,8 @@ def update_open_reco(r, today):
 
 
 def new_recos(rows, month, today, universe=None, kind='추천'):
-    """확정월(month)의 원서 매수 신호 → 새 추천 줄(이미 보유중인 같은 구분 종목은 제외)."""
-    open_t = {r['티커'] for r in rows if r['구분'] == kind and r['상태'] == '보유중'}
+    """확정월(month)의 원서 매수 신호 → 새 추천 줄(이미 추적중인 같은 구분 종목은 제외)."""
+    open_t = {r['티커'] for r in rows if r['구분'] == kind and is_open(r)}
     seen = {(r['티커'], r['진입월']) for r in rows if r['구분'] == kind}
     out = []
     for t in (universe if universe is not None else STOCKS):
@@ -144,7 +152,7 @@ def new_recos(rows, month, today, universe=None, kind='추천'):
             continue
         box = ' · 📦박스권' if bkp.in_box(d, j) else ''
         out.append({'구분': kind, '티커': t, '종목명': kname(t), '진입월': month, '진입가': round(float(d['Close'].iat[j]), 2),
-                    '통화': 'USD', '진입근거': f'{sig}{box}', '상태': '보유중', '청산월': '', '청산가': '', '수익률': '',
+                    '통화': 'USD', '진입근거': f'{sig}{box}', '상태': '추적중', '청산월': '', '청산가': '', '수익률': '',
                     '보유개월': 0, '최근 월말 10이평 대비': f"{d['Close'].iat[j] / d['MA'].iat[j] - 1:+.1%}", '비고': '', '갱신일': today})
     return out
 
@@ -207,8 +215,8 @@ def summary(rows) -> str:
         if not rs:
             continue
         closed = [pct(r['수익률']) for r in rs if r['상태'] == '청산' and pct(r['수익률']) is not None]
-        opened = [pct(r['수익률']) for r in rs if r['상태'] == '보유중' and pct(r['수익률']) is not None]
-        line = f'*{KIND_LABEL[kind]}* — 보유중 {len(opened)}개'
+        opened = [pct(r['수익률']) for r in rs if is_open(r) and pct(r['수익률']) is not None]
+        line = f"*{KIND_LABEL[kind]}* — {'보유중' if kind == '실제' else '추적중(가상 매수)'} {len(opened)}개"
         if opened:
             line += f' (평가 평균 {sum(opened) / len(opened):+.1%})'
         if closed:
@@ -234,7 +242,7 @@ def main():
     first_actual = not any(r['구분'] == '실제' for r in rows)
     if new_month:
         for r in rows:
-            if r['구분'] == '추천' and r['상태'] == '보유중':
+            if r['구분'] == '추천' and is_open(r):
                 update_open_reco(r, today)
         if month >= START_MONTH:
             fresh = new_recos(rows, month, today)
@@ -249,9 +257,9 @@ def main():
     if mkt_new:
         try:
             uni = market_universe()
-            prefetch(uni + [r['티커'] for r in mrows if r['상태'] == '보유중'])
+            prefetch(uni + [r['티커'] for r in mrows if is_open(r)])
             for r in mrows:
-                if r['상태'] == '보유중':
+                if is_open(r):
                     update_open_reco(r, today)
             fresh = new_recos(mrows, month, today, uni, MKT_KIND)
             for r in fresh:

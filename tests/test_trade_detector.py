@@ -103,7 +103,7 @@ def test_tracker_exit():
     pt.monthly_d = lambda t: d
     pt.td.completed_index = lambda dd: len(dd) - 1
     try:
-        r = {'티커': 'X', '진입월': idx[13].strftime('%Y-%m'), '진입가': 110.0, '상태': '보유중'}
+        r = {'티커': 'X', '진입월': idx[13].strftime('%Y-%m'), '진입가': 110.0, '상태': '추적중'}
         pt.update_open_reco(r, '2026-01-01')
     finally:
         pt.monthly_d, pt.td.completed_index = orig_m, orig_c
