@@ -3,10 +3,8 @@
 S&P 500 전체 월봉 MA10 스캔
 월 1회 실행 → 진입 가능 종목 리스트 출력 + Slack 전송
 
-⚠️ 2026-09-02 경고: 이 스크립트는 월봉만 확인하고 주봉MA10 눌림목은
-검증하지 않는다. "실행/검토 타임라인"은 확정 매수신호가 아니라 참고용
-후보다 — 실제 매수 판단 전 `us_weekly_scan.py`(월봉+주봉 이중조건) 결과와
-반드시 교차 확인할 것.
+2026-09-26 원서 원칙 전환(사용자 결정): 이 스캔의 ★★ 돌파(후킹)·★ 10이평 지지 반등이 곧 원서 매수 신호다.
+주봉 눌림목 교차 확인은 폐지(주봉 매수 폐지 — 매매법_전체_구현명세.md H4). 월말 장 마감 후 실행 기준.
 """
 import sys, json, os, time, warnings
 sys.stdout.reconfigure(encoding='utf-8')
@@ -14,6 +12,7 @@ warnings.filterwarnings('ignore')
 
 import pandas as pd
 import yfinance as yf
+import book_patterns as bkp  # 원서 매수 신호(캔들차트(성승현작가)/매매법_전체_구현명세.md)
 import urllib.request, urllib.error
 
 # ── 설정 ─────────────────────────────────────────────────────
@@ -25,7 +24,6 @@ try:
 except Exception:
     WEBHOOK   = os.environ.get('SLACK_SP500_WEBHOOK_URL', '')
     MA_PERIOD = 10
-ENTRY_LIMIT = 15.0   # 추세권 상한 (MA10 대비 +15% 이내)
 
 # ── AI 관련 종목 판별 ────────────────────────────────────────
 _AI_KEYWORDS = [
@@ -114,61 +112,36 @@ def scan_sp500(tickers: list) -> list:
             # group_by='ticker' → raw[ticker]['Close'] 구조
             if ticker not in raw.columns.get_level_values(0):
                 continue
-            close_series = raw[ticker]['Close'].dropna()
-            if close_series.empty:
+            sub = raw[ticker][['Open', 'High', 'Low', 'Close', 'Volume']].dropna(subset=['Close'])
+            if len(sub) < MA_PERIOD + 2:
                 continue
-            df = close_series.to_frame(name='Close')
-            df = df.dropna()
-            if len(df) < MA_PERIOD + 2:
-                continue
-
-            df['MA10'] = df['Close'].rolling(MA_PERIOD).mean()
-            df = df.dropna()
-
-            curr  = df.iloc[-1]
-            prev  = df.iloc[-2]
-            prev2 = df.iloc[-3]
-
-            close = float(curr['Close'])
-            ma10  = float(curr['MA10'])
+            # 원서 원칙(2026-09-26 사용자 결정): 매수 = 월말 종가로 확정된 돌파(후킹 캔들 p.256) 또는
+            # 10이평 지지 반등(p.340) — book_patterns.buy_signal. 이전 판의 "괴리율 5%/30% 구간" 분류는 원서에 없어 제거.
+            d = bkp.prepare(sub.ffill())
+            n = len(d) - 1
+            close = float(d['Close'].iat[n])
+            ma10  = float(d['MA'].iat[n])
             pct   = (close - ma10) / ma10 * 100
-
             above = close > ma10
             if not above:
-                continue  # MA10 아래 → 스킵
+                continue  # MA10 아래 → 매수 대상 아님(보유 중이면 매도)
 
-            # 신규 돌파 여부 (지난달 MA10 아래 → 이번달 위)
-            fresh = (float(prev['Close']) < float(prev['MA10'])) and above
-
-            # 3개월 연속 하락 여부
-            decline3 = (float(df.iloc[-1]['Close']) < float(df.iloc[-2]['Close']) <
-                        float(df.iloc[-3]['Close']))
-
-            # 백테스트 최적화 결과: 신규돌파는 괴리율 무제한이 최고 성과
-            if fresh:
-                signal = '★★ 신규돌파'   # 괴리율 무제한 — 성승현 원본
-                priority = 1
-            elif not fresh and pct <= 5:
-                signal = '★ 지지권'       # 정보용 (매수 참고)
-                priority = 2
-            elif not fresh and 5 < pct <= 30:
-                signal = '● 추세권'
-                priority = 3
-            elif pct > 30:
-                signal = '△ 고점권'
-                priority = 4
+            sig   = bkp.buy_signal(d, n)
+            fresh = sig == '돌파'
+            decline3 = (float(d['Close'].iat[n]) < float(d['Close'].iat[n - 1]) <
+                        float(d['Close'].iat[n - 2]))
+            if sig == '돌파':
+                signal, priority = '★★ 돌파(후킹 p.256)', 1
+            elif sig == '지지':
+                signal, priority = '★ 10이평 지지 반등(p.340)', 2
             else:
-                continue
+                signal, priority = '● 추세 진행 중(보유 유지, 신규 매수 아님)', 3
 
             results.append({
-                'ticker'   : ticker,
-                'close'    : round(close, 2),
-                'ma10'     : round(ma10, 2),
-                'pct'      : round(pct, 1),
-                'signal'   : signal,
-                'priority' : priority,
-                'fresh'    : fresh,
-                'decline3' : decline3,
+                'ticker': ticker, 'close': round(close, 2),
+                'ma10': round(ma10, 2), 'pct': round(pct, 1),
+                'signal': signal, 'priority': priority,
+                'fresh': fresh, 'decline3': decline3,
             })
 
         except Exception:
@@ -193,7 +166,7 @@ def print_results(results: list):
 
     print(f'\n{"="*65}')
     print(f'  S&P 500 월봉 MA10 스캔 결과')
-    print(f'  진입 가능 종목: {len(df[df["priority"] <= 3])}개')
+    print(f'  원서 매수 신호: {len(df[df["priority"] <= 2])}개')
     print(f'{"="*65}')
 
     for sig, group in df.groupby('signal', sort=False):
@@ -228,8 +201,8 @@ def send_slack(results: list):
     today = datetime.today().strftime('%Y.%m.%d')
 
     fresh = df[df['priority'] == 1]           # ★★ 신규돌파
-    dip   = df[df['priority'] == 2].head(10)  # ★ 지지권 상위 10
-    trend = df[df['priority'] == 3].head(10)  # ● 추세권 상위 10
+    dip   = df[df['priority'] == 2].head(10)  # ★ 10이평 지지 상위 10
+    trend = df[df['priority'] == 3].head(10)  # ● 추세 진행 상위 10
 
     def fmt(r):
         warn = ' ⚠️' if r['decline3'] else ''
@@ -240,12 +213,11 @@ def send_slack(results: list):
          "text": {"type": "plain_text", "text": f"S&P 500 월봉 MA10 스캔  {today}"}},
         {"type": "section",
          "text": {"type": "mrkdwn",
-                  "text": (f'진입 가능: *{len(df[df["priority"]<=3])}종목* '
-                           f'(신규돌파 {len(fresh)} / 지지권 {len(df[df["priority"]==2])} / 추세권 {len(df[df["priority"]==3])})\n'
+                  "text": (f'매수 신호: *{len(df[df["priority"]<=2])}종목* '
+                           f'(돌파 {len(fresh)} / 10이평 지지 {len(df[df["priority"]==2])} / 추세 진행 {len(df[df["priority"]==3])})\n'
                            f'_CSV 저장 완료 — 전체 목록은 sp500_scan_result.csv 확인_')}},
         {"type": "context", "elements": [{"type": "mrkdwn",
-         "text": "⚠️ *월봉만 확인 — 주봉MA10 눌림목 미검증.* 매수 전 "
-                 "`us_weekly_scan.py` 결과와 교차 확인하세요."}]},
+         "text": "원서 원칙: 매수 = 월말 종가로 확정된 돌파(후킹)·10이평 지지 반등 / 매도 = 월말 종가 10이평 이탈"}]},
         {"type": "divider"},
     ]
 
@@ -261,19 +233,19 @@ def send_slack(results: list):
     if not fresh.empty:
         lines = '\n'.join(fmt(r) for _, r in fresh.iterrows())
         blocks.append({"type": "section",
-                       "text": {"type": "mrkdwn", "text": f"*★★ 신규 돌파 — {len(fresh)}종목*\n{lines}"}})
+                       "text": {"type": "mrkdwn", "text": f"*★★ 돌파(후킹 캔들, 원서 p.256) — {len(fresh)}종목*\n{lines}"}})
         blocks.append({"type": "divider"})
 
     if not dip.empty:
         lines = '\n'.join(fmt(r) for _, r in dip.iterrows())
         blocks.append({"type": "section",
-                       "text": {"type": "mrkdwn", "text": f"*★ 지지권 (MA10 +5% 이내) — 상위 10종목*\n{lines}"}})
+                       "text": {"type": "mrkdwn", "text": f"*★ 10이평 지지 반등 (원서 p.340) — 상위 10종목*\n{lines}"}})
         blocks.append({"type": "divider"})
 
     if not trend.empty:
         lines = '\n'.join(fmt(r) for _, r in trend.iterrows())
         blocks.append({"type": "section",
-                       "text": {"type": "mrkdwn", "text": f"*● 추세권 (MA10 +5~15%, 보유 유지/신규 진입 주의) — 상위 10종목*\n{lines}"}})
+                       "text": {"type": "mrkdwn", "text": f"*● 추세 진행 중 (보유 유지, 신규 매수 아님) — 상위 10종목*\n{lines}"}})
 
     # ── 실행 타임라인 ──
     action_rows = pd.concat([fresh, dip]).sort_values('pct').head(5)
@@ -282,18 +254,17 @@ def send_slack(results: list):
         sep    = '─' * 55
         tl     = []
         for _, r in action_rows.iterrows():
-            sig  = '신규돌파' if r['fresh'] else '지지권'
+            sig  = '돌파' if r['fresh'] else '10이평 지지'
             warn = ' ⚠️연속하락' if r['decline3'] else ''
-            tl.append(f'{"22:30~":<9} {"미래에셋":<10} 🟡 {r["ticker"]} ${r["close"]:.2f}  검토후보 ({sig} {r["pct"]:+.1f}%){warn}')
+            tl.append(f'{"22:30~":<9} {"미래에셋":<10} 🟡 {r["ticker"]} ${r["close"]:.2f}  원서 매수 신호 ({sig} {r["pct"]:+.1f}%){warn}')
         table = f'```\n{header}\n{sep}\n' + '\n'.join(tl) + '\n```'
         blocks.append({"type": "divider"})
         blocks.append({"type": "header",
-                       "text": {"type": "plain_text", "text": "📋 검토 타임라인 (미국 시장 22:30~) — 매수확정 아님"}})
+                       "text": {"type": "plain_text", "text": "📋 매수 신호 타임라인 (미국 시장 22:30~)"}})
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": table}})
         blocks.append({"type": "section",
                        "text": {"type": "mrkdwn",
-                                "text": "_⚠️ 이 목록은 매수신호가 아니라 검토후보입니다. 주봉 눌림목 미검증 — "
-                                        "`us_weekly_scan.py`로 재확인 후 진입 판단하세요._"}})
+                                "text": "_원서 매수 신호 종목(월말 확정). 여러 종목이면 통합 스캔의 우선순위(1~3군)·차트를 보고 고를 것._"}})
 
     payload = json.dumps({'text': f'SP500 스캔 {today}', 'blocks': blocks},
                          ensure_ascii=False).encode('utf-8')
@@ -310,7 +281,7 @@ def send_slack(results: list):
 
 # ── 메인 ─────────────────────────────────────────────────────
 def save_signals(results: list):
-    """신규돌파 + 지지권 종목을 sp500_signals.json 으로 저장"""
+    """원서 매수 신호(돌파·10이평 지지) 종목을 sp500_signals.json 으로 저장"""
     from datetime import datetime
     signals = [
         {'ticker': r['ticker'], 'name': r['ticker'],
@@ -332,7 +303,7 @@ if __name__ == '__main__':
         print('말일 미국장 마감 후가 아니라 스킵 (market_time.should_run_monthly_scan)')
         sys.exit(0)
     print(f'\nS&P 500 월봉 MA10 스캔  {datetime.now().strftime("%Y-%m-%d %H:%M")}')
-    print(f'기준: MA{MA_PERIOD} | 추세권 +{ENTRY_LIMIT}% 이내\n')
+    print(f'기준: MA{MA_PERIOD} | 원서 매수 신호 = 월말 확정 돌파(후킹)·10이평 지지\n')
 
     tickers = get_sp500_tickers()
     if not tickers:

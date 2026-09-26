@@ -8,11 +8,10 @@
 ("대화를 한참해야 올바른 종목이 나오는 느낌"). 이 스크립트는 그 네 가지를 한 번에 돌려서
 바로 순위(1~3군)까지 매긴 결과를 낸다.
 
-⚠️ 매수 규칙 자체를 바꾸지 않는다 — 책의 공식 신호는 월봉MA10 하나뿐이고, 주봉 눌림목은
-사용자의 진입 타이밍 보조 도구다. 원서패턴(원서 2장, book_patterns.py)·매출/이익 성장(사용자 추가
-지표)은 여러 매수 가능 종목 중 우선순위를 매기는 용도로만 쓴다. "1군만 매수 가능"이
-아니라 "1군이 가장 확신도 높음, 2·3군도 이미 매수 조건은 충족한 종목"이다.
-(2026-09-26 패턴 판정을 원서 기준으로 교체 — 캔들차트(성승현작가)/패턴_구현명세.md)
+2026-09-26 사용자 결정 — 원서 원칙으로 전환: 매수는 월말 종가로 확정된 신호(돌파=후킹 p.256,
+10이평 지지 반등 p.340)만. 주봉 눌림목 매수는 폐지(진입 시점 비교 backtest_entry_timing.py —
+주봉 눌림 대기는 이득 없음, 월말 전 조기진입은 29% 실패 손절·승률 하락). 우상향·매출성장(사용자 규칙)과
+원서패턴·이익성장은 제외 조건이 아니라 우선순위(1~3군). 근거: 캔들차트(성승현작가)/매매법_전체_구현명세.md H4.
 
 실행: python integrated_scan.py           (콘솔 출력만)
       python integrated_scan.py slack     (슬랙 전송까지)
@@ -27,7 +26,8 @@ import urllib.request
 from datetime import datetime
 
 import bullish_pattern_scan as bp   # fetch_monthly·get_fundamentals만 사용
-import book_patterns as bkp        # 원서 패턴 판정(캔들차트(성승현작가)/패턴_구현명세.md)
+import book_patterns as bkp        # 원서 패턴·매수 신호 판정(캔들차트(성승현작가)/패턴_구현명세.md)
+import market_time as mt
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(BASE_DIR, 'config.json'), encoding='utf-8') as f:
@@ -36,9 +36,7 @@ with open(os.path.join(BASE_DIR, 'config.json'), encoding='utf-8') as f:
 STOCKS = CFG['stocks']
 STOCK_THEMES = CFG.get('stock_themes', {})   # 김학주 교수 자료 기반 투자테마(업종과 별개, 참고용)
 MA_MONTH = CFG.get('ma_period', 10)
-MA_WEEK = 10
-ZONE_PCT = 5        # 주봉MA10 대비 이 %이내 = 눌림목
-STRETCH_WATCH_PCT = 20   # 월봉이 5~20% 뻗은 종목 = "관찰 대상"으로 별도 표시
+STRETCH_WATCH_PCT = 20   # 추세 진행 중 종목 중 월말 10이평 대비 20% 이내만 "지지 대기" 관찰로 표시(표시용)
 
 
 def fetch(ticker, interval, period):
@@ -119,57 +117,62 @@ def pattern_status(ticker: str):
     return '+'.join(names), True, f'{month}) {extra}'
 
 
-def scan():
-    buy_candidates = []   # 월봉+주봉 조건 충족 (매수 가능)
-    watch_list = []       # 월봉만 충족 + 5~20% 뻗음 (조정 시 재진입 후보로 관찰)
-    skipped = []          # 데이터 부족/조회 실패로 판단 자체를 못한 종목 — 조용히 넘어가지 않고 기록
+def completed_index(d) -> int:
+    """월말 종가가 확정된 마지막 월봉의 위치. 진행 중인 이번 달 봉은 판단에 쓰지 않는다(원서 p.235~241).
+    미국 기준 말일 장 마감 뒤면 이번 달 봉도 확정으로 본다."""
+    last = len(d) - 1
+    ref = mt.us_ref_date()
+    if d.index[last].to_period('M') == pd.Period(ref, 'M') and not mt.is_monthend_after_close():
+        return last - 1
+    return last
 
+
+def scan():
+    """원서 원칙(2026-09-26 사용자 결정): 월말 종가 확정 신호로만 매수.
+      buy_candidates: 직전 확정 월봉에 매수 신호(돌파=후킹 p.256 / 지지=10이평 눌림 반등 p.340)
+      watch_list    : ① 이번 달 돌파 진행 중(월말 확정 전 — 매수 아님) ② 추세 진행 중, 10이평 지지 대기
+    """
+    buy_candidates, watch_list, skipped = [], [], []
     total = len(STOCKS)
     for i, (ticker, (name, sector)) in enumerate(STOCKS.items(), 1):
         print(f'  {i:02d}/{total} {ticker}...', end='\r')
         try:
             dm = fetch(ticker, '1mo', '3y')
-            if len(dm) < MA_MONTH + 2:
+            if len(dm) < MA_MONTH + 3:
                 skipped.append((ticker, name, f'월봉 데이터 부족({len(dm)}개월)'))
                 continue
-            dm['MA'] = dm['Close'].rolling(MA_MONTH).mean()
-            m_close, m_ma = float(dm.iloc[-1]['Close']), float(dm.iloc[-1]['MA'])
-            m_pct = (m_close - m_ma) / m_ma * 100
-            if m_close <= m_ma:
-                continue   # 월봉MA10 아래 — 매수 후보도 관찰 대상도 아님 (정상적인 제외, 스킵 아님)
-
-            dw = fetch(ticker, '1wk', '2y')
-            if len(dw) < MA_WEEK + 2:
-                skipped.append((ticker, name, f'주봉 데이터 부족({len(dw)}주)'))
-                continue
-            dw['MA'] = dw['Close'].rolling(MA_WEEK).mean()
-            w_close, w_ma = float(dw.iloc[-1]['Close']), float(dw.iloc[-1]['MA'])
-            w_pct = (w_close - w_ma) / w_ma * 100
-
-            if m_pct <= ZONE_PCT and w_close > w_ma and w_pct <= ZONE_PCT:
-                # ── 매수 후보: 월봉·주봉 둘 다 조건 충족 → 패턴/펀더멘털까지 확인 ──
+            d = bkp.prepare(dm)
+            t = completed_index(d)
+            last = len(d) - 1
+            sig_close, sig_ma = float(d['Close'].iat[t]), float(d['MA'].iat[t])
+            now_close = float(d['Close'].iat[last])
+            # 진행 중인 달의 잠정 10이평(지난 9개월 확정 종가 + 현재가)
+            now_ma = float(d['Close'].iloc[last - MA_MONTH + 1:last + 1].mean()) if last > t else sig_ma
+            now_pct = (now_close - now_ma) / now_ma * 100
+            sig = bkp.buy_signal(d, t)
+            base = dict(ticker=ticker, name=name, sector=sector,
+                        sig_month=d.index[t].strftime('%Y-%m'), m_pct=round((sig_close - sig_ma) / sig_ma * 100, 1),
+                        now_pct=round(now_pct, 1), since=round((now_close / sig_close - 1) * 100, 1))
+            if sig:
                 pattern, broke_up, hook_month = pattern_status(ticker)
                 fnd = bp.get_fundamentals(ticker)
                 opinc = opinc_yoy(ticker)
                 buy_candidates.append(dict(
-                    ticker=ticker, name=name, sector=sector,
-                    m_pct=round(m_pct, 1), w_pct=round(w_pct, 1),
+                    base, signal=sig, below_now=now_close <= now_ma,
                     pattern=pattern, broke_up=bool(broke_up), hook_month=hook_month,
+                    uptrend=bp.is_uptrend(ticker),
                     revenue_growth=round(fnd['revenue_growth'] * 100, 1) if fnd['revenue_growth'] is not None else None,
                     opinc_pct=opinc['pct'], opinc_note=opinc['note'],
                 ))
-            elif m_pct <= STRETCH_WATCH_PCT:
-                # ── 관찰 대상: 월봉 추세는 살아있는데 매수조건(월봉·주봉 둘 다 5%이내) 미충족.
-                # 진짜 이유(월봉이 뻗음/주봉이 눌림목 아님)를 구분해서 담아 출력 라벨을 정확히 한다.
-                reason = '월봉뻗음' if m_pct > ZONE_PCT else '주봉눌림목아님'
-                watch_list.append(dict(
-                    ticker=ticker, name=name, sector=sector,
-                    m_pct=round(m_pct, 1), w_pct=round(w_pct, 1), reason=reason,
-                ))
+            elif sig_close <= sig_ma:
+                if last > t and now_close > now_ma:
+                    watch_list.append(dict(base, reason='이번 달 돌파 진행 중(월말 확정 전 — 매수 아님)', kind=1))
+            elif base['m_pct'] <= STRETCH_WATCH_PCT:
+                reason = ('추세 진행 중 — 10이평 지지(눌림) 대기' if now_close > now_ma else
+                          '⚠️ 지금 10이평 아래 — 월말 종가로 지지(매수) 또는 이탈 결정')
+                watch_list.append(dict(base, reason=reason, kind=2))
         except Exception as e:
-            # 2026-09-23 수정: 예외를 조용히 삼키지 않고 어떤 종목이 왜 빠졌는지 기록한다
-            # (CLAUDE.md가 GitHub Actions에 대해 경고한 "내부 예외가 조용히 삼켜지는" 문제와 동일한
-            # 함정이 이 스크립트에도 있었음).
+            # 예외를 조용히 삼키지 않고 어떤 종목이 왜 빠졌는지 기록(CLAUDE.md "내부 예외가 조용히 삼켜지는" 함정)
             skipped.append((ticker, name, f'{type(e).__name__}: {e}'))
             continue
 
@@ -180,11 +183,10 @@ def scan():
 
     def score(c):
         rev = c['revenue_growth'] or 0
-        op = opinc_score(c)
-        return (0 if c['broke_up'] else 1, -(rev + op))
+        return (tier_of(c), -(rev + opinc_score(c)))
 
     buy_candidates.sort(key=score)
-    watch_list.sort(key=lambda x: x['m_pct'])
+    watch_list.sort(key=lambda x: (x['kind'], x['m_pct']))
     return buy_candidates, watch_list, skipped
 
 
@@ -195,10 +197,13 @@ def _opinc_positive(c):
 
 
 def tier_of(c):
+    """우선순위(매수 여부 아님 — 목록의 종목은 전부 원서 매수 신호). 사용자 규칙(우상향 + 매출성장 10%↑)과
+    원서 패턴·영업이익 성장을 모두 충족하면 1군(최우선). 2026-09-26 사용자 결정: 이 조건들은 제외가 아니라 순위."""
+    user_ok = c.get('uptrend') and (c['revenue_growth'] or 0) >= bp.MIN_REVENUE_GROWTH * 100
     growth_ok = (c['revenue_growth'] or 0) > 0 and _opinc_positive(c)
-    if c['broke_up'] and growth_ok:
+    if user_ok and c['broke_up'] and growth_ok:
         return 1
-    if c['broke_up'] or growth_ok:
+    if user_ok or (c['broke_up'] and growth_ok):
         return 2
     return 3
 
@@ -219,41 +224,44 @@ def fmt_tag(ticker, sector):
     return f'[{sector}]'
 
 
+TIER_LABEL = {1: '1군 최우선 — 우상향·매출성장10%↑(사용자 규칙) + 원서패턴 + 매출·이익 동반성장 모두 충족',
+              2: '2군 — 사용자 규칙 충족, 또는 원서패턴 + 매출·이익 동반성장',
+              3: '3군 — 원서 매수 신호만'}
+SIG_LABEL = {'돌파': '돌파(후킹 p.256)', '지지': '10이평 지지 반등(p.340)'}
+
+
+def _buy_line(c):
+    pat = (f"원서패턴:{c['pattern']}(후킹 {c['hook_month']}" if c['pattern']
+           else f"원서패턴:없음 {c['hook_month'] or ''}")
+    warn = ' ⚠️지금 10이평 아래 — 이번 달 말 이탈 위험' if c['below_now'] else ''
+    return (f"{c['sig_month']}말 {SIG_LABEL[c['signal']]} · 신호 후 {fmt_pct(c['since'])}{warn} | "
+            f"우상향 {'O' if c['uptrend'] else 'X'} · 매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)} | {pat}")
+
+
 def print_report(buy_candidates, watch_list, skipped):
     now = datetime.today().strftime('%Y-%m-%d')
     print()
     print('=' * 84)
-    print(f'  월봉매매법 통합 스캔 (월봉MA10 + 주봉눌림목 + 원서패턴 + 매출·영업이익성장)  [{now}]')
+    print(f'  월봉매매법 통합 스캔 — 원서 원칙(월말 종가 확정 신호로만 매수)  [{now}]')
     print('=' * 84)
-    print('  ※ 공식 매수 신호는 월봉MA10뿐. 아래 순위는 여러 매수가능 종목 중 확신도 우선순위임.')
+    print('  매수 = 월말 종가로 확정된 돌파(후킹) 또는 10이평 지지 반등. 매도 = 월말 종가 10이평 이탈.')
+    print('  군 구분은 매수 여부가 아니라 우선순위(우상향·매출성장=사용자 규칙, 원서패턴, 이익성장).')
     print()
-
     if not buy_candidates:
-        print('  매수 후보 없음 (월봉MA10 위 + 주봉눌림목 5% 이내 종목 없음)')
-    else:
-        print(f'  ✅ 아래 {len(buy_candidates)}종목 전부 지금 매수 조건(월봉+주봉) 충족 — 군 구분은 매수가능 여부가')
-        print('     아니라 참고용 확신도 순위일 뿐(원서패턴=원서 2장 기준, 매출·이익=사용자 추가 지표)')
-        print()
+        print('  원서 매수 신호 종목 없음')
     for tier in (1, 2, 3):
         rows = [c for c in buy_candidates if tier_of(c) == tier]
         if not rows:
             continue
-        label = {1: '1군 [매수가능] — 참고지표(원서패턴 완성+매출·이익 동반성장) 전부 충족, 확신도 최상',
-                  2: '2군 [매수가능] — 참고지표 일부만 충족, 확신도 중간',
-                  3: '3군 [매수가능] — 참고지표는 아직인데 월봉+주봉 조건만으로 매수가능'}[tier]
-        print(f'  [{label}]')
+        print(f'  [{TIER_LABEL[tier]}]')
         for c in rows:
-            pat = (f"원서패턴:{c['pattern']}(후킹 {c['hook_month']}" if c['pattern']
-                   else f"원서패턴:없음(이번 상승이 패턴 없는 후킹) {c['hook_month'] or ''}")
-            print(f"    {c['ticker']:<6} {c['name']:<14} {fmt_tag(c['ticker'], c['sector'])}  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
-                  f" | {pat} | 매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
+            print(f"    {c['ticker']:<6} {c['name']:<14} {fmt_tag(c['ticker'], c['sector'])}  {_buy_line(c)}")
         print()
-
     if watch_list:
-        print(f'  [관찰 대상 — 월봉 추세는 살아있으나 매수조건(월봉·주봉 둘 다 {ZONE_PCT}%이내) 미충족]')
+        print('  [관찰 — 매수 신호 아님]')
         for w in watch_list:
-            print(f"    {w['ticker']:<6} {w['name']:<14} {fmt_tag(w['ticker'], w['sector'])}  월봉{fmt_pct(w['m_pct'])} 주봉{fmt_pct(w['w_pct'])} | 사유:{w['reason']}")
-
+            print(f"    {w['ticker']:<6} {w['name']:<14} {fmt_tag(w['ticker'], w['sector'])}  "
+                  f"월말 10이평 대비 {fmt_pct(w['m_pct'])} · 현재 {fmt_pct(w['now_pct'])} | {w['reason']}")
     if skipped:
         print(f'\n  [판단 불가 — 데이터 조회 실패/부족으로 스킵된 종목 {len(skipped)}개 (조용히 안 넘어감)]')
         for tk, nm, why in skipped:
@@ -266,28 +274,29 @@ def send_slack(buy_candidates, watch_list, skipped):
     if not url:
         return
     now = datetime.today().strftime('%Y-%m-%d')
-    lines = [f'*월봉매매법 통합 스캔* ({now})',
-             '_공식 매수신호는 월봉MA10뿐. 아래 종목은 전부 이미 매수조건(월봉+주봉) 충족 —_',
-             '_군 구분은 매수가능 여부가 아니라 패턴·매출·이익(참고지표) 확신도 순위일 뿐_']
-    tier_labels = {1: '🥇 1군 [매수가능] 참고지표 전부 충족(최상)', 2: '🥈 2군 [매수가능] 참고지표 일부 충족',
-                   3: '🥉 3군 [매수가능] 참고지표 아직(월봉+주봉만)'}
-    any_row = False
+    lines = [f'*월봉매매법 통합 스캔 — 원서 원칙* ({now})',
+             '_매수 = 월말 종가로 확정된 돌파(후킹) 또는 10이평 지지 반등 / 매도 = 월말 종가 10이평 이탈_',
+             '_군 구분은 매수 여부가 아니라 우선순위_']
+    tier_icon = {1: '🥇', 2: '🥈', 3: '🥉'}
     for tier in (1, 2, 3):
         rows = [c for c in buy_candidates if tier_of(c) == tier]
         if not rows:
             continue
-        any_row = True
-        lines.append(f'\n*{tier_labels[tier]}*')
+        lines.append(f'\n*{tier_icon[tier]} {TIER_LABEL[tier]}*')
         for c in rows:
-            pat = f"원서패턴:{c['pattern']}(후킹 {c['hook_month']}" if c['pattern'] else f"원서패턴:없음 {c['hook_month'] or ''}"
-            lines.append(f"`{c['ticker']}` {c['name']} `{fmt_tag(c['ticker'], c['sector'])}`  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
-                          f"  {pat}  매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
-    if not any_row:
-        lines.append('매수 후보 없음')
-    if watch_list:
-        lines.append(f'\n*👀 관찰 대상 (매수조건 미충족, 조정/재돌파 시 후보 편입 가능)*')
-        for w in watch_list[:10]:
-            lines.append(f"`{w['ticker']}` {w['name']} `{fmt_tag(w['ticker'], w['sector'])}`  월봉{fmt_pct(w['m_pct'])} 주봉{fmt_pct(w['w_pct'])} ({w['reason']})")
+            lines.append(f"`{c['ticker']}` {c['name']} `{fmt_tag(c['ticker'], c['sector'])}`  {_buy_line(c)}")
+    if not buy_candidates:
+        lines.append('원서 매수 신호 종목 없음')
+    w1 = [w for w in watch_list if w['kind'] == 1]
+    w2 = [w for w in watch_list if w['kind'] == 2]
+    if w1:
+        lines.append('\n*👀 이번 달 돌파 진행 중 — 월말 종가 확정 전이라 매수 아님*')
+        for w in w1[:10]:
+            lines.append(f"`{w['ticker']}` {w['name']} `{fmt_tag(w['ticker'], w['sector'])}`  현재 잠정 10이평 대비 {fmt_pct(w['now_pct'])}")
+    if w2:
+        lines.append('\n*⏳ 추세 진행 중 — 10이평 지지(눌림) 대기*')
+        for w in w2[:10]:
+            lines.append(f"`{w['ticker']}` {w['name']} `{fmt_tag(w['ticker'], w['sector'])}`  월말 10이평 대비 {fmt_pct(w['m_pct'])}")
     if skipped:
         lines.append(f'\n*⚠️ 판단 불가 {len(skipped)}종목* (데이터 조회 실패/부족)')
         for tk, nm, why in skipped[:10]:

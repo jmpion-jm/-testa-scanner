@@ -96,15 +96,13 @@ def fetch(ticker: str, period='3y', interval='1mo') -> pd.DataFrame:
     return df[['Open','High','Low','Close','Volume']].dropna()
 
 
-def _check_nollim_buyable(df: pd.DataFrame, pct: float) -> dict:
-    """눌림목 추매 조건 — 원서 5장 p.364 "눌림목 구간의 거래량은 상승구간 최대 거래량의 1/7~1/20 수준까지면
-    금상첨화 … 나간 물량이 거의 없다는 것". (2026-09-26 원서 기준으로 교체 — 이전 판의 "12개월 내 거래량 3배 급등월 +
-    현재 < 평균 1.5배"는 원서에 없는 조건이었고 '돌반지'라는 이름도 잘못 붙어 있었음. 돌반지는 4장 p.344의
-    돌파-지지-반등 패턴이다. 매매법_전체_구현명세.md E1)
-    조건: 10이평 대비 0~+5% (사용자 눌림 구간) + 상승구간 최대 거래량 대비 현재 거래량 ≤ 1/7
-    """
-    if len(df) < 14 or pct > 5 or pct < 0:
-        return {'buyable': False, 'reason': '눌림목 구간 아님'}
+def _check_nollim_buyable(df: pd.DataFrame, pct: float = None) -> dict:
+    """눌림 거래량 정보 — 원서 5장 p.364 "눌림목 구간의 거래량은 상승구간 최대 거래량의 1/7~1/20 수준까지면
+    금상첨화". 2026-09-26 원서 원칙 전환: 매수 여부는 book_patterns.buy_signal(돌파/지지)이 정하고, 이 함수는
+    지지 신호의 질(거래량)을 표시만 한다. 이전 판의 "10이평 대비 0~+5%" 구간 조건(사용자 변형)은 제거.
+    반환 키: buyable(= 거래량 1/7 이하 충족), vol_ratio, vol_frac, reason"""
+    if len(df) < 14:
+        return {'buyable': False, 'reason': '데이터 부족'}
     try:
         import book_patterns as bkp
         r = bkp.pullback_volume(bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']]))
@@ -117,9 +115,20 @@ def _check_nollim_buyable(df: pd.DataFrame, pct: float) -> dict:
         'buyable': r['ideal'],
         'vol_ratio': r['ratio'],
         'vol_frac': frac,
-        'reason': (f"✅ 눌림 거래량 {frac} (상승구간 최대 대비, 원서 p.364 금상첨화 1/7 이하)" if r['ideal'] else
-                   f"⚠️ 눌림 거래량 {frac} — 원서 기준(1/7 이하)보다 많음"),
+        'reason': (f"눌림 거래량 {frac} ✅ (원서 p.364 금상첨화 1/7 이하)" if r['ideal'] else
+                   f"눌림 거래량 {frac} (원서 기준 1/7보다 많음)"),
     }
+
+
+def _book_sig(df: pd.DataFrame):
+    """마지막 월봉의 원서 매수 신호('돌파'=후킹 p.256 / '지지'=10이평 지지 반등 p.340 / None).
+    월말 알림에선 마지막 봉 = 확정된 이번 달, 주간 알림에선 진행 중인 달(잠정)."""
+    try:
+        import book_patterns as bkp
+        bd = bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']])
+        return bkp.buy_signal(bd, len(bd) - 1)
+    except Exception:
+        return None
 
 
 def _is_decline3(df: pd.DataFrame) -> bool:
@@ -168,14 +177,9 @@ def _check_jangdae_zone(df: pd.DataFrame) -> dict:
 
 
 def _vol_quality(vol_r: float) -> str:
-    """거래량 품질 라벨 — 신규돌파 신뢰도 판단"""
-    if vol_r >= 2.0:
-        return '🔥 거래량폭발(강한신호)'
-    if vol_r >= 1.5:
-        return '✅ 거래량증가(양호)'
-    if vol_r >= 1.0:
-        return '거래량보통'
-    return '⚠️ 거래량부족(주의)'
+    """거래량 표시(6개월 평균 대비). 원서 p.365 "후킹 캔들에는 거래량이 많이 수반되는 것이 좋다" — 수치 등급은
+    원서에 없어 평균 이상/미만만 표시(2026-09-26, 이전 판의 2.0배 '강한신호'/1.5배 '양호' 등급 제거)."""
+    return '평균 이상 ✅(p.365)' if vol_r >= 1.0 else '평균 미만'
 
 
 def get_exchange_rate() -> dict:
@@ -470,6 +474,7 @@ def scan_portfolio(holdings: list) -> list:
                 'death':    _is_death_candle(df),
                 'nollim':   _check_nollim_buyable(df, pct),
                 'jangdae':  _check_jangdae_zone(df),
+                'sig':      _book_sig(df),
             })
         except Exception as e:
             print(f'  [스캔오류] {h["name"]} ({h["ticker"]}): {e}')
@@ -532,7 +537,7 @@ def scan_all() -> list:
             vol_avg = float(df['Volume'].iloc[-6:].mean()) or 1
             vol_r   = float(latest['Volume']) / vol_avg
 
-            # 성승현 눌림목 추매 조건 판별
+            # 눌림 거래량(원서 p.364) — 지지 신호의 질 표시용
             nollim = _check_nollim_buyable(df, pct)
 
             rows.append(dict(
@@ -543,6 +548,7 @@ def scan_all() -> list:
                 decline3=_is_decline3(df), death=_is_death_candle(df),
                 nollim=nollim,
                 jangdae=_check_jangdae_zone(df),
+                sig=_book_sig(df),
             ))
         except:
             pass
@@ -615,29 +621,17 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
             accs = ', '.join(r['accounts'])
             blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*  → 전량 매도'))
 
-    # 신규 돌파 — 지지권(+5% 이내)만 추가매수 적극 검토 / 추세권(+5~15%) 보유 / 고점권(+15%초과) 금지
-    fresh_dip   = [r for r in port_rows if r['fresh'] and r['pct'] <= ZONE_PCT]
-    fresh_trend = [r for r in port_rows if r['fresh'] and ZONE_PCT < r['pct'] <= 15]
-    fresh_high  = [r for r in port_rows if r['fresh'] and r['pct'] > 15]
-
-    if fresh_dip:
-        label = '★ 추가매수 검토 — MA10 재돌파 (지지권 +5% 이내, 최적 진입)' if is_monthly else '★ MA10 돌파 (월말 확정 후 검토)'
+    # 추가매수 = 원서 매수 신호(2026-09-26 원서 원칙 전환 — 이전 판의 "+5% 이내 최적/+15% 초과 금지" 구간은 원서에 없어 제거)
+    for key, title in (('돌파', '★ MA10 재돌파(후킹 캔들, p.256)'), ('지지', '🟢 10이평 지지 반등(p.340)')):
+        sig_rows = [r for r in port_rows if r.get('sig') == key]
+        if not sig_rows:
+            continue
+        label = f'{title} — 추가매수 가능(원서 매수 신호)' if is_monthly else f'{title} 진행 중 — 월말 종가 확정 후 검토'
         blocks.append(_section(f'*{label}*'))
-        for r in fresh_dip:
+        for r in sig_rows:
             accs = ', '.join(r['accounts'])
-            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*'))
-
-    if fresh_trend:
-        blocks.append(_section('*● 추세권 홀딩 — MA10 돌파 +5~15%, 보유 유지 (신규 진입 주의)*'))
-        for r in fresh_trend:
-            accs = ', '.join(r['accounts'])
-            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*  → 보유 유지'))
-
-    if fresh_high:
-        blocks.append(_section('*△ 고점권 홀딩 — MA10 돌파했으나 +15% 초과, 신규 매수 금지*'))
-        for r in fresh_high:
-            accs = ', '.join(r['accounts'])
-            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*  → 보유 유지만'))
+            vol = f"  {r['nollim'].get('reason', '')}" if key == '지지' and r.get('nollim') else ''
+            blocks.append(_section(f'`{r["name"]}` ({accs})  *{r["pct"]:+.1f}%*{vol}'))
 
     # 이탈 중 (이미 아래)
     below = [r for r in port_rows if not r['above'] and not r['broke'] and not r.get('death')]
@@ -649,35 +643,15 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
             fields.append(f'`{r["name"]}`  *{r["pct"]:+.1f}%*{warn}  ({", ".join(r["accounts"])})')
         blocks.append(_fields(fields[:10]))
 
-    # 눌림목 추매 신호 (보유 종목 중)
-    nollim_port = [r for r in port_rows
-                   if r['above'] and not r['fresh']
-                   and r.get('nollim', {}).get('buyable')]
-    if nollim_port:
-        blocks.append(_section(
-            '*🟢 보유종목 눌림목 추매 신호 — 거래량 조건 충족*\n'
-            '>MA10 +5% 이내 + 눌림 거래량이 상승구간 최대의 1/7 이하 (원서 p.364)'
-        ))
-        for r in nollim_port:
-            nl   = r.get('nollim', {})
-            accs = ', '.join(r['accounts'])
-            blocks.append(_fields([
-                f'*종목:* `{r["name"]}` ({accs})',
-                f'*MA10 대비:* *+{r["pct"]}%*',
-                f'*눌림 거래량:* 상승구간 최대의 {nl.get("vol_frac","?")} (원서 기준 1/7 이하)',
-            ]))
-        blocks.append(_divider())
-
     # 정상 홀딩
-    holding = [r for r in port_rows if r['above'] and not r['fresh']]
+    holding = [r for r in port_rows if r['above'] and not r.get('sig')]
     if holding:
         blocks.append(_section('*● 홀딩 유지 — MA10 위*'))
         fields = []
         for r in holding:
             emoji = '▲' if r['pct'] > 15 else ('→' if r['pct'] > 0 else '▽')
             warn  = ' ⚠️3개월연속하락' if r.get('decline3') else ''
-            nollim_mark = ' 🟢추매검토' if r.get('nollim', {}).get('buyable') else ''
-            fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*{warn}{nollim_mark}')
+            fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*{warn}')
         blocks.append(_fields(fields[:10]))
 
     # 요약
@@ -770,9 +744,9 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
     below = [r for r in rows if not r['above']]
 
     # 신규 돌파
-    fresh = [r for r in above if r['fresh']]
+    fresh = [r for r in above if r.get('sig') == '돌파']
     if fresh:
-        blocks.append(_section('*★ 신규 돌파 종목* — 월말 확정 시 진입 검토'))
+        blocks.append(_section('*★ 이번 달 돌파(후킹) 진행 중* — 월말 종가 확정 전이라 매수 아님'))
         for r in fresh:
             vol_lbl = _vol_quality(r.get('vol_r', 0))
             blocks.append(_section(
@@ -802,34 +776,18 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
             ))
         blocks.append(_divider())
 
-    # 눌림목 — 거래량 조건별 분류
-    dips = [r for r in above if not r['fresh'] and 0 < r['pct'] <= ZONE_PCT]
-    nollim_buy   = [r for r in dips if r.get('nollim', {}).get('buyable')]
-    nollim_watch = [r for r in dips if not r.get('nollim', {}).get('buyable')]
-
-    if nollim_buy:
-        blocks.append(_section(
-            f'*🟢 눌림목 추매 후보* — 거래량 조건 충족 (월말 종가 확인 후 진입)\n'
-            f'>눌림 거래량이 상승구간 최대 거래량의 1/7 이하 — 원서 p.364 "금상첨화"'
-        ))
-        fields = [
-            f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*  '
-            f'(눌림 거래량 {r.get("nollim",{}).get("vol_frac","?")})'
-            for r in nollim_buy
-        ]
-        blocks.append(_fields(fields[:10]))
-        blocks.append(_divider())
-
-    if nollim_watch:
-        blocks.append(_section(f'*▲ 눌림목 관찰* — 거래량 조건 미충족 (대기)'))
-        fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*' for r in nollim_watch]
+    # 10이평 지지 테스트 중 — 이번 달 저가가 10이평에 닿았고 지금은 위 (월말 종가로 지지 확정 여부 결정)
+    sup = [r for r in above if r.get('sig') == '지지']
+    if sup:
+        blocks.append(_section('*🟢 10이평 지지 테스트 중* — 월말 종가가 10이평 위면 원서 매수 신호(p.340)'))
+        fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*  {r.get("nollim", {}).get("reason", "")}' for r in sup]
         blocks.append(_fields(fields[:10]))
         blocks.append(_divider())
 
     # 전체 현황 요약
     blocks.append(_section(
         f'*전체 현황*\n'
-        f'• 10이평 위 (매수가능): *{len(above)}개*\n'
+        f'• 10이평 위 (추세 진행): *{len(above)}개*\n'
         f'• 10이평 아래 (매수금지): *{len(below)}개*\n'
         f'• 총 {len(rows)}개 종목 스캔 완료'
     ))
@@ -868,17 +826,18 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     above = [r for r in rows if r['above']]
     below = [r for r in rows if not r['above']]
 
-    # ── 매수 신호 ──
-    fresh  = [r for r in above if r['fresh']]
-    dip    = [r for r in above if not r['fresh'] and r['pct'] <= ZONE_PCT]
-    trend  = [r for r in above if not r['fresh'] and ZONE_PCT < r['pct'] <= 15]
-    high   = [r for r in above if r['pct'] > 15]
+    # ── 매수 신호 (원서 원칙, 2026-09-26) ──
+    # 매수 = 이번 달 종가로 확정된 돌파(후킹 캔들, p.256) 또는 10이평 지지 반등(p.340).
+    # 이전 판의 "+5% 이내 지지권 / +5~15% 신규 진입 주의 / +15% 초과 매수 금지" 구간은 원서에 없어 제거.
+    fresh = [r for r in above if r.get('sig') == '돌파']
+    dip   = [r for r in above if r.get('sig') == '지지']
+    hold  = sorted([r for r in above if not r.get('sig')], key=lambda r: r['pct'])
 
     # (2026-09-26) 이전 판의 "글로벌 지수 50% 미만 → 약세장 주의" 배너는 원서에 없는 수치라 제거.
     # 원서 p.394는 수치 없이 "장이 안 좋으면 신규 비중 축소" — 탑다운 섹션의 지수별 상태를 보고 판단.
 
     if fresh:
-        blocks.append(_section('*★ 매수 진입 — 이번달 10이평 신규 돌파*'))
+        blocks.append(_section('*★ 매수 — 이번 달 10이평 돌파 확정 (후킹 캔들, 원서 p.256)*'))
         for r in fresh:
             vol_lbl = _vol_quality(r.get('vol_r', 0))
             blocks.append(_fields([
@@ -892,54 +851,24 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
         blocks.append(_divider())
 
     if dip:
-        # 거래량 조건 충족 = 추매 신호 / 미충족 = 관찰
-        nollim_buy = [r for r in dip if r.get('nollim', {}).get('buyable')]
-        nollim_watch = [r for r in dip if not r.get('nollim', {}).get('buyable')]
-
-        if nollim_buy:
-            blocks.append(_section(
-                f'*🟢 눌림목 추매 신호 — MA10 +{ZONE_PCT}% 이내 + 거래량 조건 충족*\n'
-                f'>원서 p.364: 눌림 거래량이 상승구간 최대 거래량의 1/7~1/20이면 금상첨화'
-            ))
-            for r in nollim_buy:
-                nl = r.get('nollim', {})
-                blocks.append(_fields([
-                    f'*종목:* `{r["ticker"]}` {r["name"]}',
-                    f'*섹터:* {r["sector"]}',
-                    f'*현재가:* {r["close"]:,.2f}',
-                    f'*MA10:* {r["ma"]:,.2f}  (*+{r["pct"]}%*)',
-                    f'*눌림 거래량:* 상승구간 최대의 {nl.get("vol_frac","?")} (원서 기준 1/7 이하)',
-                ]))
-            blocks.append(_divider())
-
-        if nollim_watch:
-            blocks.append(_section(f'*▲ 눌림목 관찰 — 거래량 조건 미충족 (대기)*'))
-            for r in nollim_watch:
-                nl = r.get('nollim', {})
-                blocks.append(_section(
-                    f'`{r["ticker"]}` *{r["name"]}*  +{r["pct"]}%  |  {nl.get("reason","")}'
-                ))
-            blocks.append(_divider())
-
-    if trend:
-        blocks.append(_section('*● 추세권 — 보유 유지 (+5~15%, 신규 진입 주의)*'))
-        fields = []
-        for r in trend:
-            line = f'`{r["ticker"]}` {r["name"]}  +{r["pct"]}%'
-            if r.get('decline3'):
-                line += ' ⚠️3개월연속하락'
-            jz = r.get('jangdae', {})
-            if jz.get('warn'):
-                line += f'\n  └ 장대양봉 4등분: *{jz["label"]}* (몸통 {jz["body_pct"]}%)'
-            fields.append(line)
-        blocks.append(_fields(fields[:10]))
+        blocks.append(_section('*🟢 매수 — 10이평 지지 반등 확정 (원서 p.340)*\n'
+                               '>이번 달 저가가 10이평에 닿고 종가는 위에서 마감. 눌림 거래량이 상승구간 최대의 1/7 이하면 금상첨화(p.364)'))
+        for r in dip:
+            nl = r.get('nollim', {})
+            blocks.append(_fields([
+                f'*종목:* `{r["ticker"]}` {r["name"]}',
+                f'*섹터:* {r["sector"]}',
+                f'*현재가:* {r["close"]:,.2f}',
+                f'*MA10:* {r["ma"]:,.2f}  (*+{r["pct"]}%*)',
+                f'*{nl.get("reason", "눌림 거래량 정보 없음")}*',
+            ]))
         blocks.append(_divider())
 
-    if high:
-        blocks.append(_section('*△ 보유 홀딩 / 신규 매수 금지 — 고점권 (+15% 초과)*'))
+    if hold:
+        blocks.append(_section('*● 추세 진행 중 — 보유 유지 / 신규 매수는 10이평 지지 때*'))
         fields = []
-        for r in high:
-            line = f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*'
+        for r in hold:
+            line = f'`{r["ticker"]}` {r["name"]}  +{r["pct"]}%'
             if r.get('decline3'):
                 line += ' ⚠️3개월연속하락'
             jz = r.get('jangdae', {})
@@ -978,9 +907,9 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     # 요약
     blocks.append(_section(
         f'*이달 결론*\n'
-        f'• 신규 매수 진입: *{len(fresh)}종목*\n'
-        f'• 눌림목 매수 고려: *{len(dip)}종목*\n'
-        f'• 홀딩 유지: *{len(trend) + len(high)}종목*\n'
+        f'• 매수(돌파): *{len(fresh)}종목*\n'
+        f'• 매수(10이평 지지): *{len(dip)}종목*\n'
+        f'• 홀딩 유지: *{len(hold)}종목*\n'
         f'• 즉시 매도: *{len(broke)}종목*\n'
         f'• 매수 금지: *{len(others_below)}종목*'
     ))
@@ -1011,8 +940,7 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
     sell_kr  = [r for r in port_rows if r.get('broke') and is_korean(r['ticker'])]
     sell_us  = [r for r in port_rows if r.get('broke') and not is_korean(r['ticker'])]
     sell_etf = [r for r in etf_rows  if r.get('broke')]
-    buy_us   = [r for r in rows      if r.get('above') and r.get('pct', 99) <= 10
-                and (r.get('fresh') or r.get('pct', 99) <= 5)]
+    buy_us   = [r for r in rows      if r.get('above') and r.get('sig') in ('돌파', '지지')]
     buy_etf  = [r for r in etf_rows  if r.get('fresh')]
 
     # Testa 신호 읽기 (당일 저장 파일)
@@ -1052,7 +980,7 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
 
     # 미국 시장 22:30~ — 매수
     for r in buy_us[:3]:
-        sig = '신규돌파' if r.get('fresh') else '지지권'
+        sig = '돌파' if r.get('sig') == '돌파' else '10이평 지지'
         timeline.append(('22:30~', '미래에셋',
             f"🟢 {r['ticker']} {r['name']} 매수  ({sig} {r['pct']:+.1f}%)"))
 
@@ -1078,11 +1006,11 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
 
 # ── 미국 신호 저장 (영웅문 관심종목 등록용) ───────────────────
 def _save_us_signals(rows: list):
-    """신규돌파 + 지지권 종목을 us_signals.json 으로 저장"""
+    """원서 매수 신호(돌파·지지) 종목을 us_signals.json 으로 저장"""
     signals = [
-        {'ticker': r['ticker'], 'name': r['name'], 'pct': r['pct']}
+        {'ticker': r['ticker'], 'name': r['name'], 'pct': r['pct'], 'signal': r.get('sig')}
         for r in rows
-        if r['above'] and (r['fresh'] or r['pct'] <= ZONE_PCT)
+        if r['above'] and r.get('sig') in ('돌파', '지지')
     ]
     path = os.path.join(BASE_DIR, 'us_signals.json')
     with open(path, 'w', encoding='utf-8') as f:
@@ -1130,20 +1058,14 @@ def run(mode: str = 'auto'):
     print(f'개별종목 스캔 완료: {len(rows)}종목')
     _save_us_signals(rows)
 
-    # 트래커 연동 — 매수/매도 신호 자동 기록
-    #
-    # ⚠️ 2026-08-31 경고: 아래 매수신호(fresh) 기록은 월봉만 확인하고
-    # 주봉MA10 눌림목(진입 타이밍) 조건은 전혀 검증하지 않는다. CLAUDE.md의
-    # 실제 매수조건(월봉+주봉 이중조건)을 정확히 구현한 건 us_weekly_scan.py다.
-    # 이 record_signal이 남긴 "월봉MA10(주봉미검증)" 기록을 매수 근거로 쓰지
-    # 말 것 — us_weekly_scan.py 결과와 반드시 교차 확인할 것.
-    # (매도쪽 record_sell_signal은 CLAUDE.md 매도조건이 애초에 월봉 단독
-    # 기준이라 문제 없음.)
+    # 트래커 연동 — 매수/매도 신호 자동 기록.
+    # 2026-09-26 원서 원칙 전환: 매수 기록 = 월말 확정 원서 신호(돌파=후킹 p.256 / 지지 p.340)만.
+    # 주간(진행 중인 달) 실행에선 매수 신호를 기록하지 않는다.
     try:
         import signal_tracker as tracker
         for r in rows:
-            if r.get('fresh'):
-                tracker.record_signal(r['ticker'], r['name'], '월봉MA10(주봉미검증)',
+            if do_monthly and r.get('sig') in ('돌파', '지지'):
+                tracker.record_signal(r['ticker'], r['name'], f"월봉MA10 {r['sig']}(원서)",
                                       r['close'], r['ma'])
             elif r.get('broke'):
                 tracker.record_sell_signal(r['ticker'], r['name'], '월봉MA10',

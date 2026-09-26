@@ -7,17 +7,15 @@
 - 월봉 MA10 상태 함께 표시
 - 슬랙 전송
 
-⚠️ 2026-08-31 경고: 이 스크립트는 월봉MA10만 확인하고 주봉MA10 눌림목
-(진입 타이밍) 조건은 검증하지 않는다. "신규돌파/지지권" 표시는 매수 확정
-신호가 아니다 — CLAUDE.md의 실제 매수조건(월봉+주봉 이중조건)을 정확히
-구현한 us_weekly_scan.py 결과와 반드시 교차 확인할 것. GitHub Actions
-자동 스케줄에는 연결되어 있지 않고 수동 실행(workflow_dispatch)만 가능하다.
+2026-09-26 원서 원칙 전환(사용자 결정): ★★ 돌파(후킹 p.256)·★ 10이평 지지 반등(p.340)이 원서 매수 신호
+(book_patterns.buy_signal, 월말 확정 기준). 주봉 교차 확인·"+5% 지지권/+30% 고점권" 구간 분류는 폐지.
 """
 import sys, json, os, warnings
 sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings('ignore')
 
 import pandas as pd
+import book_patterns as bkp
 import yfinance as yf
 import urllib.request
 from datetime import datetime
@@ -97,11 +95,13 @@ def get_ma10_status(ticker: str) -> dict:
         df = yf.download(ticker, period='3y', interval='1mo',
                          auto_adjust=True, progress=False)
         if isinstance(df.columns, pd.MultiIndex):
-            close = df['Close'].iloc[:, 0].dropna()
-        else:
-            close = df['Close'].dropna()
+            df.columns = df.columns.get_level_values(0)
+        df = df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+        close = df['Close']
         if len(close) < MA_PERIOD + 2:
             return {}
+        bd = bkp.prepare(df)
+        sig = bkp.buy_signal(bd, len(bd) - 1)
         ma10  = close.rolling(MA_PERIOD).mean()
         curr_close = float(close.iloc[-1])
         curr_ma10  = float(ma10.iloc[-1])
@@ -121,6 +121,7 @@ def get_ma10_status(ticker: str) -> dict:
             'pct':   round(pct, 1),
             'above': above,
             'fresh': fresh,
+            'sig':   sig,
             'ret52': round(ret52, 1),
         }
     except Exception:
@@ -140,14 +141,12 @@ def scan() -> list:
         if not index_tag:
             index_tag = '미편입'
 
-        if s['fresh']:
-            signal, priority = '★★ 신규돌파', 1
-        elif s['above'] and s['pct'] <= 5:
-            signal, priority = '★ 지지권', 2
-        elif s['above'] and s['pct'] <= 30:
-            signal, priority = '● 추세권', 3
+        if s['sig'] == '돌파':
+            signal, priority = '★★ 돌파(후킹)', 1
+        elif s['sig'] == '지지':
+            signal, priority = '★ 10이평 지지', 2
         elif s['above']:
-            signal, priority = '△ 고점권', 4
+            signal, priority = '● 추세 진행', 3
         else:
             signal, priority = '✗ MA10아래', 5
 
@@ -186,18 +185,16 @@ def send_slack(results: list):
                   "text": f"🔍 이슈섹터 신흥 종목 발굴  {today}"}},
         {"type": "section",
          "text": {"type": "mrkdwn",
-                  "text": (f'신규돌파 *{len(fresh)}* 종목 / 지지권 *{len(dip)}* 종목 / '
-                           f'추세권 *{len(trend)}* 종목\n'
+                  "text": (f'돌파 *{len(fresh)}* 종목 / 10이평 지지 *{len(dip)}* 종목 / '
+                           f'추세 진행 *{len(trend)}* 종목\n'
                            f'_🆕미편입 = NASDAQ100·S&P500 미포함 신흥 종목_')}},
         {"type": "context", "elements": [{"type": "mrkdwn",
-         "text": "⚠️ *이 스캔은 월봉만 확인합니다 — 주봉MA10 눌림목(진입 타이밍)은 "
-                 "검증 안 됨.* 실제 매수 판단 전 `us_weekly_scan.py` 결과와 반드시 "
-                 "교차 확인하세요."}]},
+         "text": "원서 원칙: 매수 = 월말 종가로 확정된 돌파(후킹 p.256)·10이평 지지 반등(p.340) / 매도 = 월말 10이평 이탈"}]},
         {"type": "divider"},
     ]
 
-    for label, group in [('★★ 신규돌파', fresh), ('★ 지지권 (MA10 +5% 이내)', dip),
-                         ('● 추세권 (MA10 +5~30%)', trend)]:
+    for label, group in [('★★ 돌파(후킹 p.256) — 원서 매수 신호', fresh), ('★ 10이평 지지 반등(p.340) — 원서 매수 신호', dip),
+                         ('● 추세 진행 중 (신규 매수 아님)', trend)]:
         if group.empty:
             continue
         lines = '\n'.join(fmt(r) for _, r in group.iterrows())
@@ -234,12 +231,12 @@ if __name__ == '__main__':
     print(f'\n총 {len(results)}종목 분석 완료')
     send_slack(results)
 
-    # 트래커 연동 — 신규돌파 자동 기록
+    # 트래커 연동 — 원서 매수 신호(돌파·지지) 기록
     try:
         import signal_tracker as tracker
         for r in results:
-            if r.get('priority') == 1:  # 신규돌파만
-                tracker.record_signal(r['ticker'], r['name'], '이슈섹터(주봉미검증)',
+            if r.get('priority') in (1, 2):
+                tracker.record_signal(r['ticker'], r['name'], f"이슈섹터 {r['sig']}(원서)",
                                       r['close'], r['ma10'])
     except Exception as e:
         print(f'[트래커] {e}')

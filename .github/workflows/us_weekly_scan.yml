@@ -1,8 +1,9 @@
-name: 미국주식 월봉×주봉 이중필터 스캔 (평일 16:40 KST)
+name: 미국주식 월봉×주봉 이중필터 스캔 (자동 실행 중지 — 수동 전용)
 
+# 2026-09-26 사용자 결정으로 자동 실행 중지: 매수는 원서 원칙(월말 종가 확정 신호)만 쓰고
+# 주봉 눌림목 매수는 폐지. 매일 알림은 integrated_scan.yml이 원서 기준으로 대신한다.
+# 근거: 캔들차트(성승현작가)/매매법_전체_구현명세.md H4 (backtest_entry_timing.py)
 on:
-  schedule:
-    - cron: '40 7 * * 1-5'   # UTC 07:40 = KST 16:40, 월~금
   workflow_dispatch:
 
 permissions:

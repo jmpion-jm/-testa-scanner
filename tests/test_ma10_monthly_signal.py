@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 월봉MA10 매수/매도 신호 로직 검증 — nasdaq100_scan.py / sp500_scan.py의
-scan_ndx100() / scan_sp500()가 "월봉MA10 위=매수후보, 이탈=매도(신호제외)" 규칙과
-신규돌파/지지권/추세권/고점권 분류를 정확히 구현하는지 확인한다.
-
-합성(가짜) 월봉 종가로 yf.download()를 대체해 네트워크 호출 없이 검증한다.
-매매법 규칙 자체(손절/익절 기준)는 절대 바꾸지 않고, 기존 코드가 그 규칙대로
-정확히 동작하는지만 확인하는 순수 로직 테스트다 — 실패하면 코드를 임의로
-고치지 말고 사용자에게 먼저 보고할 것.
+scan_ndx100() / scan_sp500()가 원서 원칙(2026-09-26 사용자 결정)대로 분류하는지 확인한다.
+  매수 = 월말 확정 돌파(후킹 캔들: 직전 종가 ≤ 10이평, 양봉, 시가 ≤ 10이평 < 종가, p.256) → priority 1
+       = 10이평 지지 반등(직전 종가 > 10이평, 저가 ≤ 10이평 < 종가, p.340)                → priority 2
+  10이평 위 나머지 = 추세 진행 중(보유 유지)                                            → priority 3
+  10이평 아래 = 결과에서 제외(매도)
+합성(가짜) 월봉 OHLC로 yf.download()를 대체해 네트워크 호출 없이 검증한다.
+실패하면 코드를 임의로 고치지 말고 사용자에게 먼저 보고할 것.
 """
 import sys, os
 import pandas as pd
@@ -28,15 +28,15 @@ def check(name, condition, detail=""):
 
 def build_cases():
     """
-    ticker -> (직전달 종가, 이번달 종가).
-    기준선(첫 period개월)은 전부 100으로 고정해 MA10을 손계산 가능하게 한다.
+    ticker -> (직전달 종가, 이번달 (시가, 저가, 종가)).
+    기준선(첫 period개월)은 전부 100으로 고정해 MA10을 손계산 가능하게 한다(이번 달 10이평 ≈ 100~103).
     """
     return {
-        'FRESH': (80.0, 110.0),    # 직전달 MA10 아래 → 이번달 위: 신규돌파
-        'DIP':   (105.0, 103.0),   # 이미 위 + 괴리율 ≤5%: 지지권
-        'TREND': (105.0, 130.0),   # 이미 위 + 괴리율 5~30%: 추세권
-        'HIGH':  (105.0, 200.0),   # 이미 위 + 괴리율 >30%: 고점권
-        'BELOW': (105.0, 95.0),    # 이번달 MA10 아래: 매도(결과에서 제외)
+        'HOOK':    (80.0, (85.0, 84.0, 110.0)),     # 직전 아래 → 양봉 몸통이 10이평 관통: 돌파(후킹)
+        'GAP':     (99.0, (104.0, 103.0, 106.0)),   # 직전 아래 → 시가부터 10이평 위(몸통 관통 아님): 후킹 아님 → 추세
+        'SUPPORT': (105.0, (104.0, 99.0, 103.0)),   # 직전 위 → 저가가 10이평에 닿고 종가 위: 지지
+        'TREND':   (105.0, (110.0, 120.0 - 1, 130.0)),  # 직전 위, 저가도 10이평 한참 위: 추세
+        'BELOW':   (105.0, (100.0, 90.0, 95.0)),    # 이번달 10이평 아래: 매도(결과에서 제외)
     }
 
 
@@ -49,15 +49,18 @@ def expected_ma10(period, prev_val, curr_val, which):
 def make_raw(period, cases, short_ticker='SHORT'):
     dates = pd.date_range('2020-01-01', periods=period + 2, freq='MS')
     frames = {}
-    for ticker, (prev_val, curr_val) in cases.items():
-        closes = [100.0] * period + [prev_val, curr_val]
-        frames[ticker] = pd.DataFrame({'Close': closes}, index=dates)
+    for ticker, (prev_val, (o, lo, c)) in cases.items():
+        closes = [100.0] * period + [prev_val, c]
+        opens = [100.0] * period + [prev_val, o]
+        lows = [100.0] * period + [prev_val, lo]
+        highs = [max(a, b) for a, b in zip(opens, closes)]
+        frames[ticker] = pd.DataFrame({'Open': opens, 'High': highs, 'Low': lows, 'Close': closes,
+                                       'Volume': [1000.0] * len(closes)}, index=dates)
 
     # 데이터 부족 종목 — MA10 계산 최소 개월 수(period+2) 미달 시 반드시 제외돼야 함
     short_len = max(period - 2, 1)
-    short_dates = dates[:short_len]
     frames[short_ticker] = pd.DataFrame(
-        {'Close': [100.0] * short_len}, index=short_dates
+        {k: [100.0] * short_len for k in ('Open', 'High', 'Low', 'Close', 'Volume')}, index=dates[:short_len]
     ).reindex(dates)
 
     return pd.concat(frames, axis=1)
@@ -88,17 +91,17 @@ def _run_scan(module_name, scan_fn_name):
           f'실제 포함 여부={"SHORT" in by_ticker}')
 
     expects = {
-        'FRESH': dict(priority=1, fresh=True,  signal_kw='신규돌파'),
-        'DIP':   dict(priority=2, fresh=False, signal_kw='지지권'),
-        'TREND': dict(priority=3, fresh=False, signal_kw='추세권'),
-        'HIGH':  dict(priority=4, fresh=False, signal_kw='고점권'),
+        'HOOK':    dict(priority=1, fresh=True,  signal_kw='돌파(후킹'),
+        'SUPPORT': dict(priority=2, fresh=False, signal_kw='10이평 지지'),
+        'GAP':     dict(priority=3, fresh=False, signal_kw='추세 진행'),
+        'TREND':   dict(priority=3, fresh=False, signal_kw='추세 진행'),
     }
     for ticker, exp in expects.items():
         r = by_ticker.get(ticker)
         if r is None:
             check(f'{ticker} 결과에 존재', False, '결과에서 누락됨')
             continue
-        prev_val, curr_val = cases[ticker]
+        prev_val, (_, _, curr_val) = cases[ticker]
         exp_ma10 = expected_ma10(P, prev_val, curr_val, 'curr')
         exp_pct  = round((curr_val - exp_ma10) / exp_ma10 * 100, 1)
 

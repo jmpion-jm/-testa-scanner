@@ -2,6 +2,9 @@
 """
 미국주식 월봉MA10 + 주봉MA10 이중 필터 스캔
   월봉MA10 위 (매크로 상승추세) + 주봉MA10 눌림목 (진입 타이밍)
+
+⚠️ 2026-09-26 사용자 결정(원서 원칙 전환)으로 주봉 눌림목 매수는 폐지 — 이 스크립트는 자동 실행 중지,
+수동 참고용으로만 남김. 매수 신호는 book_patterns.buy_signal(월말 확정 돌파·10이평 지지). 근거: 매매법_전체_구현명세.md H4
 """
 import sys, io, json, os, warnings
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')

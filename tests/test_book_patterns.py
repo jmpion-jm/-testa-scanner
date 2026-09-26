@@ -124,6 +124,22 @@ def test_chapter_rules():
     check('5이평만 넘으면 포킹 아님', not bp.is_forking(d, len(d) - 1))
 
 
+def test_buy_signal():
+    """2026-09-26 사용자 결정(원서 원칙): 매수 = 월말 확정 돌파(후킹 p.256) 또는 10이평 지지 반등(p.340).
+    주봉 조기진입·주봉 눌림 대기는 쓰지 않는다(매매법_전체_구현명세.md H4)."""
+    print('\n[매수 신호 — 원서 원칙]')
+    d = bp.prepare(bars([100.0] * 12 + [90, 110]))
+    check('10이평 아래→위 관통 양봉 = 돌파 (p.256)', bp.buy_signal(d, len(d) - 1) == '돌파')
+    df = bars([100.0] * 12 + [105, 103])
+    df.iloc[-1, df.columns.get_loc('Low')] = 99.0      # 저가가 10이평(≈100.8)에 닿고 종가 103
+    d = bp.prepare(df)
+    check('직전 위 + 저가가 10이평 닿고 종가 위 = 지지 (p.340)', bp.buy_signal(d, len(d) - 1) == '지지')
+    d = bp.prepare(bars([100.0] * 12 + [105, 130]))
+    check('10이평 한참 위 추세 진행 = 매수 신호 없음', bp.buy_signal(d, len(d) - 1) is None)
+    d = bp.prepare(bars([100.0] * 12 + [105, 95]))
+    check('10이평 아래 마감 = 매수 신호 없음', bp.buy_signal(d, len(d) - 1) is None)
+
+
 def test_book_examples():
     print('\n[원서 예시 차트 재현 — 고정 시세]')
     import verify_book_examples as vbe
@@ -138,6 +154,7 @@ if __name__ == '__main__':
     test_constants_locked()
     test_core_rules()
     test_chapter_rules()
+    test_buy_signal()
     test_book_examples()
     print('\n' + '=' * 60)
     if failures:

@@ -14,8 +14,10 @@
 원서 진입 자리(p.256): 후킹 캔들 종가 / 10이평 지지를 확인한 펌핑 캔들 종가.
   - 후킹: 이번 달 봉이 원서 상승 패턴(쌍바닥·역H&S·삼중바닥, 되돌림·겹/대쌍바닥)을 완성한 후킹 캔들
   - 펌핑: 지난달이 그 후킹이고 이번 달도 10이평 위에서 마감
-사용자 필터(원서 규칙 아님, 사용자 요청으로 유지): 우상향(is_uptrend) + 매출성장률 10% 이상.
-필터 단계별 통과 수를 함께 보고한다(명세서 §7: 우상향 필터는 원서 패턴의 약 81%를 걸러냄 — 사용자 판단용).
+사용자 규칙(원서 규칙 아님): 우상향(is_uptrend) + 매출성장률 10% 이상.
+2026-09-26 사용자 결정: 이 두 조건은 제외 필터가 아니라 우선순위 — 원서 패턴 종목은 전부 보여주고,
+두 조건을 모두 충족한 종목을 ⭐최우선으로 맨 위에 올린다(우상향 필터가 원서 패턴의 약 81%를 지웠고
+효과는 통계적으로 불확실 — 명세서 §7).
 
 실행: python bullish_pattern_scan.py [nasdaq100|sp500|kospi]
       (GitHub Actions: 매월 말일 미국장 마감 후 nasdaq100)
@@ -37,7 +39,7 @@ MA_PERIOD = CFG.get('ma_period', 10)
 WEBHOOK = CFG.get('slack_webhook_url_discovery', '')
 STOCK_INFO = CFG.get('stocks', {})          # 티커 -> [한글명, 업종]
 STOCK_THEMES = CFG.get('stock_themes', {})  # 티커 -> 김학주 교수 자료 기반 투자테마
-MIN_REVENUE_GROWTH = 0.10  # 사용자 규칙: 성장성 없는 종목은 제외 — 최소 매출성장률 10%
+MIN_REVENUE_GROWTH = 0.10  # 사용자 규칙: 매출성장률 10% 이상 — 제외가 아니라 우선순위(2026-09-26)
 
 
 def fetch_monthly(ticker: str) -> pd.DataFrame:
@@ -143,14 +145,14 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> tuple[list[dict
     print(' ' * 50, end='\r')
 
     counts = {'pattern': len(found), 'errors': errors, 'forking': forking}
-    up = [r for r in found if is_uptrend(r['ticker'])]
-    counts['uptrend'] = len(up)
-    survivors = []
-    for r in up:
+    for r in found:
         t = r['ticker']
+        r['uptrend'] = is_uptrend(t)
         fund = get_fundamentals(t)
         r['revenue_growth'] = fund['revenue_growth']
-        r['earnings_growth'] = fund['earnings_growth']  # 표시만, 필터 아님
+        r['earnings_growth'] = fund['earnings_growth']  # 표시만
+        r['rev_ok'] = fund['revenue_growth'] is not None and fund['revenue_growth'] >= MIN_REVENUE_GROWTH
+        r['top'] = r['uptrend'] and r['rev_ok']        # 사용자 규칙 둘 다 충족 = 최우선
         if t in STOCK_INFO:
             r['name'] = STOCK_INFO[t][0]
             r['sector'] = STOCK_INFO[t][1]
@@ -159,16 +161,16 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> tuple[list[dict
             r['name'] = fund['long_name'] or t
             r['sector'] = fund['sector']
             r['theme'] = None
-        if fund['revenue_growth'] is not None and fund['revenue_growth'] >= MIN_REVENUE_GROWTH:
-            survivors.append(r)
-    counts['growth'] = len(survivors)
-    counts['all_patterns'] = [(r['ticker'], r['pattern_label'], r['stage']) for r in found]
-    return survivors, counts
+    found.sort(key=lambda r: (not r['top'], not r['rev_ok'], not r['uptrend']))
+    counts['uptrend'] = sum(r['uptrend'] for r in found)
+    counts['growth'] = sum(r['rev_ok'] for r in found)
+    counts['top'] = sum(r['top'] for r in found)
+    return found, counts
 
 
 def _funnel(counts):
-    return (f"원서 패턴 완성 {counts['pattern']}종목 → 우상향 필터 통과 {counts['uptrend']} → "
-            f"매출성장 {MIN_REVENUE_GROWTH*100:.0f}%+ 통과 {counts['growth']}")
+    return (f"원서 패턴 {counts['pattern']}종목 (⭐최우선 = 우상향+매출성장 {MIN_REVENUE_GROWTH*100:.0f}%↑ 둘 다: "
+            f"{counts['top']} / 우상향 {counts['uptrend']} / 매출성장 {counts['growth']})")
 
 
 def _book_info(r):
@@ -179,6 +181,10 @@ def _book_info(r):
     return ' · '.join(parts)
 
 
+def _mark(r):
+    return ('⭐최우선 ' if r['top'] else '') + f"우상향 {'O' if r['uptrend'] else 'X'}"
+
+
 def _pct(v):
     return f"{v*100:+.0f}%" if v is not None else "N/A"
 
@@ -186,16 +192,14 @@ def _pct(v):
 def print_report(results: list[dict], counts: dict, label: str):
     print(f"\n{'=' * 100}\n  원서 상승 패턴 월말 스캔 — {label}   [{datetime.today().strftime('%Y-%m-%d')}]\n{'=' * 100}")
     print('  ' + _funnel(counts))
-    if counts['all_patterns']:
-        print('  (필터 전 원서 패턴 종목: ' + ', '.join(f'{t} {p}·{s}' for t, p, s in counts['all_patterns']) + ')')
     for t, why in counts['errors']:
         print(f'  [판단 불가] {t}: {why}')
     if not results:
-        print('  최종 후보 없음')
+        print('  원서 패턴 종목 없음')
     for r in results:
         sec = r.get('sector') or ''
         theme = f"|테마:{r['theme']}" if r.get('theme') and r['theme'] != sec else ''
-        print(f"  [{r['pattern_label']}·{r['stage']}] {r['ticker']:<8} {r['name']} [{sec}{theme}] "
+        print(f"  {_mark(r)} [{r['pattern_label']}·{r['stage']}] {r['ticker']:<8} {r['name']} [{sec}{theme}] "
               f"후킹 {r['hook_date']}  종가 {r['cur_close']:,.2f} (10이평 {r['cur_ma10']:,.2f})  "
               f"매출 {_pct(r['revenue_growth'])} 이익 {_pct(r.get('earnings_growth'))}  "
               f"| {_book_info(r)}")
@@ -203,7 +207,7 @@ def print_report(results: list[dict], counts: dict, label: str):
         print(f"\n  [월봉 포킹 — 종가가 5·10·20이평 동시 돌파, 원서 p.384~387] {len(counts['forking'])}종목")
         for f in counts['forking']:
             print(f"    {f['ticker']:<8} {f['name']}  | 정배열 {'O' if f['정배열'] else 'X'} · 240 {f['240']}")
-    print('  ⚠️ 매수 확정 신호 아님 — 공식 매수 신호는 월봉 10이평, 차트 육안 확인 후 판단')
+    print('  후킹·펌핑(p.256) 종목은 원서 매수 자리 — ⭐는 사용자 규칙 우선순위일 뿐, 제외 기준 아님')
     print('=' * 100 + '\n')
 
 
@@ -218,17 +222,17 @@ def send_slack(results: list[dict], counts: dict, label: str):
         {"type": "context", "elements": [{"type": "mrkdwn", "text":
             "성승현 원서 2장 패턴(쌍바닥·역H&S·삼중바닥, 되돌림·겹/대쌍바닥)이 이번 달 후킹(10이평 상향 관통 양봉)으로 "
             "완성됐거나 지난달 후킹 후 펌핑 중인 종목. 원서 예시 10개 재현 검증 완료. "
-            "⚠️ 매수 확정 신호 아님 — 공식 신호는 월봉 10이평."}]},
+            "후킹·펌핑은 원서 매수 자리(p.256). ⭐최우선 = 사용자 규칙(우상향+매출성장10%↑) 충족 — 순위일 뿐 제외 기준 아님."}]},
         {"type": "section", "text": {"type": "mrkdwn", "text": _funnel(counts)}},
         {"type": "divider"},
     ]
     if not results:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "최종 후보 없음."}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "원서 패턴 종목 없음."}})
     for r in results[:30]:  # 슬랙 블록 50개 제한
         sec = r.get('sector') or ''
         theme = f"|테마:{r['theme']}" if r.get('theme') and r['theme'] != sec else ''
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text":
-            f"*[{r['pattern_label']}·{r['stage']}]* `{r['ticker']}` {r['name']} `[{sec}{theme}]`  "
+            f"{_mark(r)} *[{r['pattern_label']}·{r['stage']}]* `{r['ticker']}` {r['name']} `[{sec}{theme}]`  "
             f"후킹 {r['hook_date']}  매출 {_pct(r['revenue_growth'])} 이익 {_pct(r.get('earnings_growth'))}\n"
             f"_{_book_info(r)}_"}})
     if counts['forking']:

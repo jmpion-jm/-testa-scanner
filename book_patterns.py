@@ -456,6 +456,24 @@ def last_breakout_pattern(df: pd.DataFrame, max_age: int = 12) -> dict | None:
     return {'hook_date': d.index[k], 'months_since_hook': n - k, 'bull': b, 'composite': comps}
 
 
+# ================================================================== 매수 신호 (2026-09-26 사용자 결정: 원서 원칙으로)
+def buy_signal(d: pd.DataFrame, t: int) -> str | None:
+    """완성된 봉 t(월봉이면 월말 종가 확정된 달)의 원서 매수 신호. 매도 규칙(월말 종가 < 10이평)과 짝.
+      '돌파'  : 후킹 캔들 — 10이평을 아래→위로 관통하는 양봉(p.256). 돌파매매(p.340).
+      '지지'  : 직전 봉이 10이평 위(추세 진행 중), 이번 봉 저가가 10이평에 닿았는데 종가는 10이평 위에서 마감
+                — 원서 p.340 "10이평선에서 지지받는지 여부를 확인하고, 여기서 눌림목 만들고 반등한다면",
+                눌림목 매매(p.340). 원서에 '닿음'의 허용폭 수치가 없어 저가 ≤ 10이평을 그대로 쓴다.
+    그 외 None. 주봉 조기진입은 쓰지 않는다(backtest_entry_timing.py 비교 후 사용자 결정, 매매법_전체_구현명세.md H4)."""
+    if not _ok(d, t):
+        return None
+    if is_hook(d, t):
+        return '돌파'
+    ma = d['MA'].iat[t]
+    if d['above'].iat[t - 1] and d['Low'].iat[t] <= ma < d['Close'].iat[t]:
+        return '지지'
+    return None
+
+
 
 # ================================================================== 1·4·5·6장 규칙 (매매법_전체_구현명세.md)
 def add_long_mas(d: pd.DataFrame) -> pd.DataFrame:

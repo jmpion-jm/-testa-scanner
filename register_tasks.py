@@ -74,7 +74,8 @@ WEEKDAYS_MF = "MON,TUE,WED,THU,FRI"
 MONTH_END_DAYS = [28, 29, 30, 31]
 tasks_base = [
     ("Stock_Weekly_Friday",  f'-X utf8 "{alert}" weekly',   "WEEKLY",  "FRI",       "16:00"),
-    ("US_Weekly_Scan",       f'-X utf8 "{weekly}" slack',   "WEEKLY",  "FRI",       "16:05"),
+    # US_Weekly_Scan(주봉 눌림목 매수 알림)은 2026-09-26 사용자 결정(원서 원칙 — 월말 확정 신호로만 매수)으로
+    # 등록 중지, 기존 태스크도 Disable 처리함. 근거: 매매법_전체_구현명세.md H4
     ("Stock_Monthly",        f'-X utf8 "{alert}" monthly',  "MONTHLY", None,        "16:10"),
     ("SP500_Monthly",        f'-X utf8 "{sp500}"',          "MONTHLY", None,        "17:30"),
     ("NDX100_Monthly",       f'-X utf8 "{ndx100}"',         "MONTHLY", None,        "18:00"),
