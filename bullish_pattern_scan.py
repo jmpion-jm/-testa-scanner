@@ -16,7 +16,8 @@
   - 펌핑: 지난달이 그 후킹이고 이번 달도 10이평 위에서 마감
 사용자 규칙(원서 규칙 아님): 우상향(is_uptrend) + 매출성장률 10% 이상.
 2026-09-26 사용자 결정: 이 두 조건은 제외 필터가 아니라 우선순위 — 원서 패턴 종목은 전부 보여주고,
-두 조건을 모두 충족한 종목을 ⭐최우선으로 맨 위에 올린다(우상향 필터가 원서 패턴의 약 81%를 지웠고
+(2026-09-26 갱신: 검증 결과 매출·이익·우상향 모두 성과 차이 없음 → ⭐ 순위도 없애고 표시만 — backtest_fundamentals.py)
+원래는 두 조건을 모두 충족한 종목을 ⭐최우선으로 올렸었다(우상향 필터가 원서 패턴의 약 81%를 지웠고
 효과는 통계적으로 불확실 — 명세서 §7).
 
 실행: python bullish_pattern_scan.py [nasdaq100|sp500|kospi]
@@ -162,7 +163,7 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> tuple[list[dict
             r['name'] = fund['long_name'] or t
             r['sector'] = fund['sector']
             r['theme'] = None
-    found.sort(key=lambda r: (r['box'], not r['top'], not r['rev_ok'], not r['uptrend']))
+    found.sort(key=lambda r: (r['box'], r['stage'] != '후킹', r['ticker']))   # 박스권 후순위만, 실적·우상향은 표시만
     counts['uptrend'] = sum(r['uptrend'] for r in found)
     counts['growth'] = sum(r['rev_ok'] for r in found)
     counts['top'] = sum(r['top'] for r in found)
@@ -170,8 +171,8 @@ def scan_bullish(universe: list[tuple[str, str]], label: str) -> tuple[list[dict
 
 
 def _funnel(counts):
-    return (f"원서 패턴 {counts['pattern']}종목 (⭐최우선 = 우상향+매출성장 {MIN_REVENUE_GROWTH*100:.0f}%↑ 둘 다: "
-            f"{counts['top']} / 우상향 {counts['uptrend']} / 매출성장 {counts['growth']})")
+    return (f"원서 패턴 {counts['pattern']}종목 (참고: 우상향 {counts['uptrend']} / 매출성장 {MIN_REVENUE_GROWTH*100:.0f}%↑ "
+            f"{counts['growth']} — 순위·제외에 쓰지 않음)")
 
 
 def _book_info(r):
@@ -183,7 +184,7 @@ def _book_info(r):
 
 
 def _mark(r):
-    return (('⭐최우선 ' if r['top'] and not r['box'] else '') + f"우상향 {'O' if r['uptrend'] else 'X'}"
+    return (f"우상향 {'O' if r['uptrend'] else 'X'}"
             + (' 📦박스권(상단 돌파 전)' if r['box'] else ''))
 
 
@@ -209,7 +210,7 @@ def print_report(results: list[dict], counts: dict, label: str):
         print(f"\n  [월봉 포킹 — 종가가 5·10·20이평 동시 돌파, 원서 p.384~387] {len(counts['forking'])}종목")
         for f in counts['forking']:
             print(f"    {f['ticker']:<8} {f['name']}  | 정배열 {'O' if f['정배열'] else 'X'} · 240 {f['240']}")
-    print('  후킹·펌핑(p.256) 종목은 원서 매수 자리 — ⭐는 사용자 규칙 우선순위일 뿐, 제외 기준 아님')
+    print('  후킹·펌핑(p.256) 종목은 원서 매수 자리 — 우상향·매출·이익은 참고 표시(검증상 성과 차이 없음)')
     print('=' * 100 + '\n')
 
 
@@ -224,7 +225,7 @@ def send_slack(results: list[dict], counts: dict, label: str):
         {"type": "context", "elements": [{"type": "mrkdwn", "text":
             "성승현 원서 2장 패턴(쌍바닥·역H&S·삼중바닥, 되돌림·겹/대쌍바닥)이 이번 달 후킹(10이평 상향 관통 양봉)으로 "
             "완성됐거나 지난달 후킹 후 펌핑 중인 종목. 원서 예시 10개 재현 검증 완료. "
-            "후킹·펌핑은 원서 매수 자리(p.256). ⭐최우선 = 사용자 규칙(우상향+매출성장10%↑) 충족 — 순위일 뿐 제외 기준 아님."}]},
+            "후킹·펌핑은 원서 매수 자리(p.256). 우상향·매출·이익은 참고 표시 — 검증상 성과 차이 없어 순위에 쓰지 않음."}]},
         {"type": "section", "text": {"type": "mrkdwn", "text": _funnel(counts)}},
         {"type": "divider"},
     ]

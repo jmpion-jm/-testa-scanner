@@ -10,8 +10,9 @@
 
 2026-09-26 사용자 결정 — 원서 원칙으로 전환: 매수는 월말 종가로 확정된 신호(돌파=후킹 p.256,
 10이평 지지 반등 p.340)만. 주봉 눌림목 매수는 폐지(진입 시점 비교 backtest_entry_timing.py —
-주봉 눌림 대기는 이득 없음, 월말 전 조기진입은 29% 실패 손절·승률 하락). 우상향·매출성장(사용자 규칙)과
-원서패턴·이익성장은 제외 조건이 아니라 우선순위(1~3군). 근거: 캔들차트(성승현작가)/매매법_전체_구현명세.md H4.
+주봉 눌림 대기는 이득 없음, 월말 전 조기진입은 29% 실패 손절·승률 하락). 근거: 캔들차트(성승현작가)/매매법_전체_구현명세.md H4.
+순위(1~3군)는 원서 패턴 완성·📦박스권만으로 정한다. 매출·영업이익·우상향은 참고 표시만(검증상 성과 차이 없음 —
+backtest_fundamentals.py, 2026-09-26 사용자 결정 "결과를 인정해야지").
 
 실행: python integrated_scan.py           (콘솔 출력만)
       python integrated_scan.py slack     (슬랙 전송까지)
@@ -176,36 +177,25 @@ def scan():
             skipped.append((ticker, name, f'{type(e).__name__}: {e}'))
             continue
 
-    def opinc_score(c):
-        if c['opinc_pct'] is not None:
-            return c['opinc_pct']
-        return {'적자→흑자전환': 100, '적자축소': 10, '적자확대': -10, '흑자→적자전환': -100}.get(c['opinc_note'], 0)
-
     def score(c):
-        rev = c['revenue_growth'] or 0
-        return (c['box'], tier_of(c), -(rev + opinc_score(c)))   # 박스권 안(p.309)은 같은 군 안에서 맨 아래
+        return (tier_of(c), c['signal'] != '돌파', c['ticker'])   # 매출·이익은 순위에 안 씀(표시만)
 
     buy_candidates.sort(key=score)
     watch_list.sort(key=lambda x: (x['kind'], x['m_pct']))
     return buy_candidates, watch_list, skipped
 
 
-def _opinc_positive(c):
-    if c['opinc_pct'] is not None:
-        return c['opinc_pct'] > 0
-    return c['opinc_note'] in ('적자→흑자전환', '적자축소')
-
-
 def tier_of(c):
-    """우선순위(매수 여부 아님 — 목록의 종목은 전부 원서 매수 신호). 사용자 규칙(우상향 + 매출성장 10%↑)과
-    원서 패턴·영업이익 성장을 모두 충족하면 1군(최우선). 2026-09-26 사용자 결정: 이 조건들은 제외가 아니라 순위."""
-    user_ok = c.get('uptrend') and (c['revenue_growth'] or 0) >= bp.MIN_REVENUE_GROWTH * 100
-    growth_ok = (c['revenue_growth'] or 0) > 0 and _opinc_positive(c)
-    if user_ok and c['broke_up'] and growth_ok:
-        return 1
-    if user_ok or (c['broke_up'] and growth_ok):
-        return 2
-    return 3
+    """우선순위(매수 여부 아님 — 목록의 종목은 전부 원서 매수 신호). 원서·검증 근거가 있는 것만 쓴다:
+      1군 = 원서 패턴 완성 후킹으로 시작한 상승(명세서 §7: 매매법 거래 평균 +42.8% vs 패턴 없는 후킹 +18.9%, 유의)
+      2군 = 원서 매수 신호만
+      3군 = 📦박스권 안(p.309, backtest_box_range.py: 박스 안 신호 +9.6% vs 나머지 +28.9%)
+    2026-09-26 사용자 결정("시뮬레이션 결과를 인정해야지"): 매출·영업이익 성장·우상향은 순위에서 제외, 표시만.
+    근거 backtest_fundamentals.py — SEC 공시 기준 신호 13,155건에서 매출+10%↑&이익증가 신호가 평균 +13.9%·승률 36.7%로
+    나머지(+14.1%·41.6%)와 차이 없음(95% 구간 −1.6%~+4.1%). 우상향 필터도 효과 불확실(명세서 §7)."""
+    if c['box']:
+        return 3
+    return 1 if c['broke_up'] else 2
 
 
 def fmt_pct(v):
@@ -224,9 +214,9 @@ def fmt_tag(ticker, sector):
     return f'[{sector}]'
 
 
-TIER_LABEL = {1: '1군 최우선 — 우상향·매출성장10%↑(사용자 규칙) + 원서패턴 + 매출·이익 동반성장 모두 충족',
-              2: '2군 — 사용자 규칙 충족, 또는 원서패턴 + 매출·이익 동반성장',
-              3: '3군 — 원서 매수 신호만'}
+TIER_LABEL = {1: '1군 — 원서 패턴 완성으로 시작한 상승(검증상 가장 강함)',
+              2: '2군 — 원서 매수 신호',
+              3: '3군 — 📦박스권 안(상단 돌파 전, p.309) — 후순위'}
 SIG_LABEL = {'돌파': '돌파(후킹 p.256)', '지지': '10이평 지지 반등(p.340)'}
 
 
@@ -247,7 +237,7 @@ def print_report(buy_candidates, watch_list, skipped):
     print(f'  월봉매매법 통합 스캔 — 원서 원칙(월말 종가 확정 신호로만 매수)  [{now}]')
     print('=' * 84)
     print('  매수 = 월말 종가로 확정된 돌파(후킹) 또는 10이평 지지 반등. 매도 = 월말 종가 10이평 이탈.')
-    print('  군 구분은 매수 여부가 아니라 우선순위(우상향·매출성장=사용자 규칙, 원서패턴, 이익성장).')
+    print('  군 구분 = 원서 패턴 완성(1군) / 신호만(2군) / 📦박스권(3군). 매출·이익·우상향은 참고 표시(순위에 안 씀).')
     print()
     if not buy_candidates:
         print('  원서 매수 신호 종목 없음')
@@ -278,7 +268,7 @@ def send_slack(buy_candidates, watch_list, skipped):
     now = datetime.today().strftime('%Y-%m-%d')
     lines = [f'*월봉매매법 통합 스캔 — 원서 원칙* ({now})',
              '_매수 = 월말 종가로 확정된 돌파(후킹) 또는 10이평 지지 반등 / 매도 = 월말 종가 10이평 이탈_',
-             '_군 구분은 매수 여부가 아니라 우선순위_']
+             '_1군 원서 패턴 완성 / 2군 신호만 / 3군 📦박스권 — 매출·이익·우상향은 참고 표시_']
     tier_icon = {1: '🥇', 2: '🥈', 3: '🥉'}
     for tier in (1, 2, 3):
         rows = [c for c in buy_candidates if tier_of(c) == tier]
