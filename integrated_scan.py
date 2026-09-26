@@ -9,9 +9,10 @@
 바로 순위(1~3군)까지 매긴 결과를 낸다.
 
 ⚠️ 매수 규칙 자체를 바꾸지 않는다 — 책의 공식 신호는 월봉MA10 하나뿐이고, 주봉 눌림목은
-사용자의 진입 타이밍 보조 도구다. 패턴 돌파·매출/이익 성장은 원서에 없는 추가 확신도
-필터이며, 여러 매수 가능 종목 중 우선순위를 매기는 용도로만 쓴다. "1군만 매수 가능"이
+사용자의 진입 타이밍 보조 도구다. 원서패턴(원서 2장, book_patterns.py)·매출/이익 성장(사용자 추가
+지표)은 여러 매수 가능 종목 중 우선순위를 매기는 용도로만 쓴다. "1군만 매수 가능"이
 아니라 "1군이 가장 확신도 높음, 2·3군도 이미 매수 조건은 충족한 종목"이다.
+(2026-09-26 패턴 판정을 원서 기준으로 교체 — 캔들차트(성승현작가)/패턴_구현명세.md)
 
 실행: python integrated_scan.py           (콘솔 출력만)
       python integrated_scan.py slack     (슬랙 전송까지)
@@ -25,7 +26,8 @@ import pandas as pd
 import urllib.request
 from datetime import datetime
 
-import bullish_pattern_scan as bp
+import bullish_pattern_scan as bp   # fetch_monthly·get_fundamentals만 사용
+import book_patterns as bkp        # 원서 패턴 판정(캔들차트(성승현작가)/패턴_구현명세.md)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(BASE_DIR, 'config.json'), encoding='utf-8') as f:
@@ -88,25 +90,33 @@ def opinc_yoy(ticker: str) -> dict:
 
 
 def pattern_status(ticker: str):
-    """쌍바닥/삼중바닥/역H&S 중 하나라도 잡히면 (패턴명, 넥라인돌파여부) 반환, 없으면 (None, None).
+    """지금의 상승을 시작한 후킹(10이평 상향 관통 양봉)이 원서 패턴 완성이었는지.
 
-    bullish_pattern_scan.scan_bullish()와 동일하게 is_uptrend() 매크로추세 확인을 통과해야만
-    돌파(broke_up)로 인정한다 — 원서 3장(p.308~310) 경고: 혼조추세(박스권)에서는 패턴이
-    가짜로 잡히는 경우가 많아, 이 확인 없이는 박스권 종목이 '패턴돌파'로 오분류될 수 있다.
+    반환: (패턴 라벨 또는 None, 원서패턴완성 여부 bool, "후킹 월) 정배열·240 정보" 또는 정배열·240 정보만)
+    판정은 book_patterns.last_breakout_pattern — 규칙은 패턴_구현명세.md(원서 쪽수 근거, 원서 예시 10개 재현)에 고정.
+    2026-09-26: 이전 판(넥라인 돌파 + is_uptrend)은 원서와 달라 폐기(명세서 §9). 백테스트상 원서 패턴으로 시작한
+    상승은 매매법 거래 평균 +42.8% vs 패턴 없는 후킹 +18.9%(명세서 §7) — 우선순위 근거로 쓴다.
     """
     try:
         df = bp.fetch_monthly(ticker)
     except Exception:
-        return None, None
-    for finder in (bp.find_ssangbadak, bp.find_samjungbadak, bp.find_inverse_hns):
-        try:
-            r = finder(df)
-        except Exception:
-            r = None
-        if r:
-            broke_up = bool(r.get('broke_up')) and bp.is_uptrend(ticker)
-            return r['pattern'], broke_up
-    return None, None
+        return None, False, None
+    # 정배열(원서 p.333)·240이평(p.331, 돌반지 p.344~353) — 패턴 유무와 상관없이 표시
+    d = bkp.add_long_mas(bkp.prepare(df))
+    jb = bkp.jeongbaeyeol(d)
+    extra = f"정배열 {'O' if jb['정배열'] else 'X'} · 240 {bkp.ma240_status(d) or '데이터없음'}"
+    r = bkp.last_breakout_pattern(df)
+    if r is None:
+        return None, False, extra
+    names = ([r['bull']['pattern']] if r['bull'] else []) + [c['pattern'] for c in r['composite']]
+    month = r['hook_date'].strftime('%Y-%m')
+    if r['months_since_hook'] == 0:
+        month += ' 진행중·미확정'   # 후킹이 아직 안 끝난 이번 달 봉 — 월말 종가로 뒤집힐 수 있음
+    if r['bull']:
+        t240 = bkp.pattern_240(d, r['bull'])
+        if t240:
+            extra += ' · ' + ' · '.join(t240)
+    return '+'.join(names), True, f'{month}) {extra}'
 
 
 def scan():
@@ -138,13 +148,13 @@ def scan():
 
             if m_pct <= ZONE_PCT and w_close > w_ma and w_pct <= ZONE_PCT:
                 # ── 매수 후보: 월봉·주봉 둘 다 조건 충족 → 패턴/펀더멘털까지 확인 ──
-                pattern, broke_up = pattern_status(ticker)
+                pattern, broke_up, hook_month = pattern_status(ticker)
                 fnd = bp.get_fundamentals(ticker)
                 opinc = opinc_yoy(ticker)
                 buy_candidates.append(dict(
                     ticker=ticker, name=name, sector=sector,
                     m_pct=round(m_pct, 1), w_pct=round(w_pct, 1),
-                    pattern=pattern, broke_up=bool(broke_up),
+                    pattern=pattern, broke_up=bool(broke_up), hook_month=hook_month,
                     revenue_growth=round(fnd['revenue_growth'] * 100, 1) if fnd['revenue_growth'] is not None else None,
                     opinc_pct=opinc['pct'], opinc_note=opinc['note'],
                 ))
@@ -213,7 +223,7 @@ def print_report(buy_candidates, watch_list, skipped):
     now = datetime.today().strftime('%Y-%m-%d')
     print()
     print('=' * 84)
-    print(f'  월봉매매법 통합 스캔 (월봉MA10 + 주봉눌림목 + 패턴돌파 + 매출·영업이익성장)  [{now}]')
+    print(f'  월봉매매법 통합 스캔 (월봉MA10 + 주봉눌림목 + 원서패턴 + 매출·영업이익성장)  [{now}]')
     print('=' * 84)
     print('  ※ 공식 매수 신호는 월봉MA10뿐. 아래 순위는 여러 매수가능 종목 중 확신도 우선순위임.')
     print()
@@ -222,19 +232,19 @@ def print_report(buy_candidates, watch_list, skipped):
         print('  매수 후보 없음 (월봉MA10 위 + 주봉눌림목 5% 이내 종목 없음)')
     else:
         print(f'  ✅ 아래 {len(buy_candidates)}종목 전부 지금 매수 조건(월봉+주봉) 충족 — 군 구분은 매수가능 여부가')
-        print('     아니라 참고용 확신도 순위일 뿐(패턴·매출·이익은 원서에 없는 추가 참고지표)')
+        print('     아니라 참고용 확신도 순위일 뿐(원서패턴=원서 2장 기준, 매출·이익=사용자 추가 지표)')
         print()
     for tier in (1, 2, 3):
         rows = [c for c in buy_candidates if tier_of(c) == tier]
         if not rows:
             continue
-        label = {1: '1군 [매수가능] — 참고지표(패턴돌파+매출·이익 동반성장) 전부 충족, 확신도 최상',
+        label = {1: '1군 [매수가능] — 참고지표(원서패턴 완성+매출·이익 동반성장) 전부 충족, 확신도 최상',
                   2: '2군 [매수가능] — 참고지표 일부만 충족, 확신도 중간',
                   3: '3군 [매수가능] — 참고지표는 아직인데 월봉+주봉 조건만으로 매수가능'}[tier]
         print(f'  [{label}]')
         for c in rows:
-            pat = (f"패턴참고:{c['pattern']}·{'넥라인돌파확정' if c['broke_up'] else '넥라인아직(형성중)'}"
-                   if c['pattern'] else '패턴참고:없음')
+            pat = (f"원서패턴:{c['pattern']}(후킹 {c['hook_month']}" if c['pattern']
+                   else f"원서패턴:없음(이번 상승이 패턴 없는 후킹) {c['hook_month'] or ''}")
             print(f"    {c['ticker']:<6} {c['name']:<14} {fmt_tag(c['ticker'], c['sector'])}  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
                   f" | {pat} | 매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
         print()
@@ -269,8 +279,7 @@ def send_slack(buy_candidates, watch_list, skipped):
         any_row = True
         lines.append(f'\n*{tier_labels[tier]}*')
         for c in rows:
-            pat = (f"패턴참고:{c['pattern']}·{'넥라인돌파확정' if c['broke_up'] else '넥라인아직'}"
-                   if c['pattern'] else '패턴참고:없음')
+            pat = f"원서패턴:{c['pattern']}(후킹 {c['hook_month']}" if c['pattern'] else f"원서패턴:없음 {c['hook_month'] or ''}"
             lines.append(f"`{c['ticker']}` {c['name']} `{fmt_tag(c['ticker'], c['sector'])}`  월봉{fmt_pct(c['m_pct'])} 주봉{fmt_pct(c['w_pct'])}"
                           f"  {pat}  매출{fmt_pct(c['revenue_growth'])} 영업이익{fmt_opinc(c)}")
     if not any_row:

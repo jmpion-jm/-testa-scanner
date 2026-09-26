@@ -53,3 +53,6 @@ jobs:
 
       - name: 회귀 테스트 실행 (월말 알림 시점 — 미국장 마감 후만)
         run: python -u tests/test_market_time.py
+
+      - name: 회귀 테스트 실행 (원서 패턴 — 구현명세 잠금 + 원서 예시 10개 재현)
+        run: python -u tests/test_book_patterns.py

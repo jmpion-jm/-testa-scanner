@@ -36,11 +36,19 @@ EXCLUDE_ASSETS = {'채권', '현금', '예수금'}
 
 # ── 탑다운 글로벌 지수 (성승현 매매법 1원칙) ──────────────────
 GLOBAL_MARKETS = {
+    # 원서 7장 탑다운 순서(p.393~397): 미국 → 유럽 → 아시아·제조업국 → 자원부국 → 한국.
+    # (2026-09-26 원서 기준 보강 — 이전 판은 유럽·자원국·튀르키예·중국이 빠져 있었음. 데이터 없는 지수는 '데이터부족' 표시)
     '🇺🇸 미국': {
         '나스닥': '^IXIC', 'S&P500': '^GSPC', '다우': '^DJI',
     },
-    '🏭 제조업국가': {
-        '독일DAX': '^GDAXI', '일본니케이': '^N225', '대만가권': '^TWII',
+    '🇪🇺 유럽': {
+        '유로스톡스50': '^STOXX50E', '독일DAX': '^GDAXI', '영국FTSE': '^FTSE', '프랑스CAC': '^FCHI',
+    },
+    '🏭 아시아·제조업국': {
+        '대만가권': '^TWII', '일본니케이': '^N225', '튀르키예BIST100': 'XU100.IS', '중국상해': '000001.SS',
+    },
+    '⛏️ 자원부국': {
+        '브라질보베스파': '^BVSP', '호주ASX200': '^AXJO',
     },
     '🇰🇷 한국': {
         '코스피': '^KS11', '코스닥': '^KQ11',
@@ -89,40 +97,28 @@ def fetch(ticker: str, period='3y', interval='1mo') -> pd.DataFrame:
 
 
 def _check_nollim_buyable(df: pd.DataFrame, pct: float) -> dict:
-    """성승현 눌림목 추매 조건 판별
-    조건①: 현재가가 MA10 +5% 이내 (눌림목 구간)
-    조건②: 최근 12개월 내 월봉 거래량 3배↑ 급등월 존재 (돌반지 1차 신호)
-    조건③: 현재 눌림목 구간 거래량이 낮음 (세력 이탈 없음)
-    세 조건 모두 충족 시 → 추매 신호
+    """눌림목 추매 조건 — 원서 5장 p.364 "눌림목 구간의 거래량은 상승구간 최대 거래량의 1/7~1/20 수준까지면
+    금상첨화 … 나간 물량이 거의 없다는 것". (2026-09-26 원서 기준으로 교체 — 이전 판의 "12개월 내 거래량 3배 급등월 +
+    현재 < 평균 1.5배"는 원서에 없는 조건이었고 '돌반지'라는 이름도 잘못 붙어 있었음. 돌반지는 4장 p.344의
+    돌파-지지-반등 패턴이다. 매매법_전체_구현명세.md E1)
+    조건: 10이평 대비 0~+5% (사용자 눌림 구간) + 상승구간 최대 거래량 대비 현재 거래량 ≤ 1/7
     """
     if len(df) < 14 or pct > 5 or pct < 0:
         return {'buyable': False, 'reason': '눌림목 구간 아님'}
-
-    avg_vol     = float(df['Volume'].iloc[-13:-1].mean()) or 1
-    surge_max   = float(df['Volume'].iloc[-13:-1].max())
-    surge_ratio = surge_max / avg_vol
-
-    # 최근 12개월 내 3배 이상 거래량 급등월 존재 여부
-    has_surge = surge_ratio >= 3.0
-
-    # 현재월 거래량 비율 (눌림목에선 낮아야 세력 이탈 없음)
-    curr_vol_r = float(df['Volume'].iloc[-1]) / avg_vol
-
-    # 눌림목 거래량 기준: 평균 1.5배 미만 = 세력 여전히 보유
-    pullback_quiet = curr_vol_r < 1.5
-
-    buyable = has_surge and pullback_quiet
+    try:
+        import book_patterns as bkp
+        r = bkp.pullback_volume(bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']]))
+    except Exception as e:
+        return {'buyable': False, 'reason': f'판정 오류: {e}'}
+    if r is None:
+        return {'buyable': False, 'reason': '눌림 아님(상승구간 최고가 진행 중)'}
+    frac = f"1/{1 / r['ratio']:.0f}" if r['ratio'] > 0 else '0'
     return {
-        'buyable':       buyable,
-        'surge_ratio':   round(surge_ratio, 1),
-        'curr_vol_r':    round(curr_vol_r, 1),
-        'has_surge':     has_surge,
-        'pullback_quiet': pullback_quiet,
-        'reason': (
-            '✅ 추매 조건 충족' if buyable else
-            '❌ 거래량 급등 이력 없음' if not has_surge else
-            '⚠️ 눌림목 거래량 과다 (세력 이탈 의심)'
-        ),
+        'buyable': r['ideal'],
+        'vol_ratio': r['ratio'],
+        'vol_frac': frac,
+        'reason': (f"✅ 눌림 거래량 {frac} (상승구간 최대 대비, 원서 p.364 금상첨화 1/7 이하)" if r['ideal'] else
+                   f"⚠️ 눌림 거래량 {frac} — 원서 기준(1/7 이하)보다 많음"),
     }
 
 
@@ -135,68 +131,40 @@ def _is_decline3(df: pd.DataFrame) -> bool:
 
 
 def _is_death_candle(df: pd.DataFrame) -> bool:
-    """저승사자 캔들: MA10 이탈 직후 출현한 장대 음봉.
-    - 이번달 종가가 MA10 아래(이탈)
-    - 이번달 음봉(시가 > 종가)이며 몸통이 큰(>=8%) 장대봉
-    """
+    """저승사자 캔들: 10이평이 뚫리는 지점에 매달리는 긴 장대음봉(원서 p.262, p.264).
+    장대 기준은 원서 p.216 "몸통 길이가 전일 대비 5~7% 이상"(하한 5%), 연속 음봉은 합쳐서 본다(p.265 카카오
+    "음봉 세 개를 합치면 저승사자 캔들"). (2026-09-26 교체 — 이전 판의 "몸통 4%"는 원서에 없는 값)"""
     if 'Open' not in df.columns or 'MA' not in df.columns or len(df) < 2:
         return False
     last = df.iloc[-1]
-    o, c, ma = float(last['Open']), float(last['Close']), float(last['MA'])
-    if any(pd.isna(v) for v in (o, c, ma)) or o <= 0:
+    if pd.isna(last['MA']) or float(last['Close']) >= float(last['MA']):
         return False
-    below   = c < ma                       # MA10 이탈
-    bearish = c < o                         # 음봉
-    big     = (o - c) / o * 100 >= 4.0      # 장대(몸통 4% 이상) — 성승현 원본
-    return bool(below and bearish and big)
+    try:
+        import book_patterns as bkp
+        bd = bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']])
+        return bool(bkp.is_big_bear(bd, len(bd) - 1))
+    except Exception:
+        return False
 
 
 def _check_jangdae_zone(df: pd.DataFrame) -> dict:
-    """장대양봉 4등분선 — 성승현 매도 기준
-    최근 12개월 내 MA10 위에서 발생한 가장 큰 장대양봉 기준 현재가 위치 확인
-      상위 25% 유지   → 홀딩
-      50% 중심선 이탈 → ⚠️ 경고
-      하위 25% 이탈   → 🚨 매도 검토
-    """
-    if len(df) < 3 or 'MA' not in df.columns:
-        return {}
+    """장대양봉 4등분선(원서 p.219~223). 가장 최근 장대양봉(연속 양봉 합산)의 몸통 기준 현재 종가 위치.
+    (2026-09-26 교체 — 이전 판은 "최근 12개월 중 가장 큰 장대양봉" 기준이었고 25% 아래를 "매도 검토"라 표시했음.
+    원서는 장대양봉이 선 직후부터 사등분해서 본다. 이 매매법의 매도는 월봉 10이평 이탈뿐이므로 여기선 경고만 한다.)"""
     try:
-        recent = df.iloc[-13:-1]
-        candidates = []
-        for _, row in recent.iterrows():
-            o  = float(row.get('Open', 0))
-            c  = float(row['Close'])
-            ma = float(row['MA']) if not pd.isna(row['MA']) else 0
-            if o <= 0 or ma <= 0:
-                continue
-            if c > o and c > ma:
-                body_pct = (c - o) / o * 100
-                if body_pct >= 5.0:
-                    candidates.append({'open': o, 'close': c, 'body_pct': body_pct})
-        if not candidates:
-            return {}
-        best  = max(candidates, key=lambda x: x['body_pct'])
-        body  = best['close'] - best['open']
-        q1    = best['open'] + body * 0.25
-        q2    = best['open'] + body * 0.50
-        q3    = best['open'] + body * 0.75
-        curr  = float(df['Close'].iloc[-1])
-        if curr >= q3:
-            zone, warn, sell, label = 'top',      False, False, '상위25% 유지'
-        elif curr >= q2:
-            zone, warn, sell, label = 'mid_high', False, False, '중위권 유지'
-        elif curr >= q1:
-            zone, warn, sell, label = 'mid_low',  True,  False, '⚠️ 중심선 이탈 경고'
-        else:
-            zone, warn, sell, label = 'bottom',   True,  True,  '🚨 하위25% — 매도 검토'
-        return {
-            'zone': zone, 'label': label,
-            'warn': warn, 'sell': sell,
-            'q1': round(q1, 2), 'q2': round(q2, 2), 'q3': round(q3, 2),
-            'body_pct': round(best['body_pct'], 1),
-        }
+        import book_patterns as bkp
+        r = bkp.four_division(bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']]))
     except Exception:
         return {}
+    if not r:
+        return {}
+    warn = r['zone'] in ('매입원가 훼손', '절대자리 훼손')
+    return {
+        'zone': r['zone'], 'label': r['label'],
+        'warn': warn, 'sell': False, 'energy0': r['zone'] == '절대자리 훼손',
+        'q1': round(r['q1'], 2), 'q2': round(r['q2'], 2), 'q3': round(r['q3'], 2),
+        'body_pct': r['body_pct'],
+    }
 
 
 def _vol_quality(vol_r: float) -> str:
@@ -274,7 +242,10 @@ def topdown_analysis() -> dict:
 
 
 def topdown_regime(td: dict) -> tuple:
-    """(레짐 라벨, 상승 개수, 전체 개수) 반환"""
+    """(요약 라벨, 10이평 위 지수 개수, 전체 개수).
+    원서 7장은 "장이 좋으면 적극적으로, 안 좋으면 신규 비중 축소·중단·인버스"(p.394)라고만 하고 수치 기준이 없다.
+    (2026-09-26 교체 — 이전 판의 "상승비율 70%↑ 강세장 / 50~70% 혼조장 / 50%↓ 약세장"은 원서에 없는 수치였음.
+    매매법_전체_구현명세.md G2) 판단은 사용자가 지수별 상태를 보고 한다."""
     total, bullish = 0, 0
     for markets in td.values():
         for data in markets.values():
@@ -284,14 +255,7 @@ def topdown_regime(td: dict) -> tuple:
                     bullish += 1
     if total == 0:
         return ('⚪ 데이터없음', 0, 0)
-    ratio = bullish / total * 100
-    if ratio >= 70:
-        label = '🟢 강세장'
-    elif ratio >= 50:
-        label = '🟡 혼조장'
-    else:
-        label = '🔴 약세장'
-    return (label, bullish, total)
+    return (f'10이평 위 지수 {bullish}/{total}', bullish, total)
 
 
 def build_topdown_section(td: dict) -> list:
@@ -311,12 +275,9 @@ def build_topdown_section(td: dict) -> list:
                 parts.append(f'{icon}{name}({pct_str})')
         lines.append(f'{region}: ' + '  '.join(parts))
 
-    if ratio >= 70:
-        lines.append('→ 적극 매수 가능')
-    elif ratio >= 50:
-        lines.append('→ 선별적 접근, 신규 진입 신중')
-    else:
-        lines.append('⚠️ *신규 매수 자제 — 현금 비중 확대 권고*')
+    # 원서 p.394: "장이 좋다면 적극적으로, 안 좋다면 개별주 신규 투자 비중을 줄이거나 아예 안 하면 된다. 혹은 인버스".
+    # 수치 기준은 원서에 없다 — 이전 판의 70%/50% 권고문은 원서에 없는 수치라 제거(2026-09-26). 판단은 지수별 상태로.
+    lines.append('_원서 p.394: 장이 좋으면 적극적으로, 안 좋으면 신규 비중 축소·중단 (수치 기준 없음 — 지수별 상태로 판단)_')
 
     return [_section('\n'.join(lines)), _divider()]
 
@@ -477,8 +438,28 @@ def scan_portfolio(holdings: list) -> list:
             fresh = bool(float(prev['Close']) < float(prev['MA']) and above)
             broke = bool(float(prev['Close']) > float(prev['MA']) and not above)
 
+            # 원서 하락 패턴(book_patterns — 패턴_구현명세.md). 매도 기준은 그대로 MA10 이탈이고 이건 표시용:
+            #   top_warn  = 아직 MA10 위인데 천장 구조(쌍봉/H&S/삼고점)가 이미 형성됨 (p.263 "형태가 보일 때부터 경계")
+            #   break_pat = 이번 봉이 MA10 이탈이면 어떤 하락 패턴의 완성이었나 (겹쌍봉·대쌍봉은 장기 약세 경고)
+            top_warn = break_pat = None
+            try:
+                import book_patterns as bkp
+                bd = bkp.prepare(df[['Open', 'High', 'Low', 'Close', 'Volume']])
+                n = len(bd) - 1
+                if above:
+                    tw = bkp.bearish_forming(bd)
+                    top_warn = tw['pattern'] if tw else None
+                elif bkp.is_breakdown(bd, n):
+                    bb = bkp.bearish_at(bd, n)
+                    names = ([bb['pattern']] if bb else []) + [c['pattern'] for c in bkp.bear_composite_at(bd, n)]
+                    break_pat = '+'.join(names) or None
+            except Exception as e:
+                print(f'  [패턴판정오류] {h["name"]}: {e}')
+
             rows.append({
                 **h,
+                'top_warn': top_warn,
+                'break_pat': break_pat,
                 'close':    round(close, 2),
                 'ma':       round(ma, 2),
                 'pct':      round(pct, 1),
@@ -607,12 +588,24 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
             accs = ', '.join(r['accounts'])
             # 저승사자 캔들: 이탈 직후 장대 음봉 = 매도 이미 늦음, 무조건 청산
             death = '\n💀 *저승사자 캔들* (이탈 직후 장대 음봉) — 지체 없이 전량 매도' if r.get('death') else ''
+            if r.get('break_pat'):
+                long_weak = any(k in r['break_pat'] for k in ('겹쌍봉', '대쌍봉'))
+                death += (f'\n📉 원서 하락 패턴: *{r["break_pat"]}*'
+                          + (' — 원서 p.285·289: 이후 수년간 약세가 대부분, 재매수 서두르지 말 것' if long_weak else ''))
             blocks.append(_section(
                 f'`{r["name"]}` ({accs})\n'
                 f'현재가 {r["close"]:,.0f}  /  MA10 {r["ma"]:,.0f}  /  *{r["pct"]:+.1f}%*\n'
                 f'→ {"전량 매도 후 CD금리 대기" if is_monthly else "월말 종가 확인 후 결정"}'
                 + death
             ))
+
+    # 천장 패턴 형성 중 — 아직 MA10 위 (원서 p.263 "쌍봉 패턴은 형태가 보일 때부터 무조건 경계")
+    top_warn = [r for r in port_rows if r.get('top_warn')]
+    if top_warn:
+        blocks.append(_section('*⚠️ 천장 패턴 형성 중 — 아직 MA10 위, 이탈하는 달 종가에 매도* (원서 p.263 "형태가 보일 때부터 경계")'))
+        for r in top_warn:
+            accs = ', '.join(r['accounts'])
+            blocks.append(_section(f'`{r["name"]}` ({accs})  {r["top_warn"]}  *MA10 {r["pct"]:+.1f}%*'))
 
     # 저승사자 캔들이 떴으나 위 broke에 안 잡힌 경우(이미 이전에 이탈)도 별도 경고
     death_only = [r for r in port_rows if r.get('death') and not r['broke']]
@@ -663,7 +656,7 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
     if nollim_port:
         blocks.append(_section(
             '*🟢 보유종목 눌림목 추매 신호 — 거래량 조건 충족*\n'
-            '>MA10 +5% 이내 + 과거 거래량 3배↑ 확인 + 현재 세력 이탈 없음'
+            '>MA10 +5% 이내 + 눌림 거래량이 상승구간 최대의 1/7 이하 (원서 p.364)'
         ))
         for r in nollim_port:
             nl   = r.get('nollim', {})
@@ -671,8 +664,7 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
             blocks.append(_fields([
                 f'*종목:* `{r["name"]}` ({accs})',
                 f'*MA10 대비:* *+{r["pct"]}%*',
-                f'*과거 최대 거래량:* {nl.get("surge_ratio",0):.1f}배↑',
-                f'*현재 눌림목 거래량:* {nl.get("curr_vol_r",0):.1f}배 (조용)',
+                f'*눌림 거래량:* 상승구간 최대의 {nl.get("vol_frac","?")} (원서 기준 1/7 이하)',
             ]))
         blocks.append(_divider())
 
@@ -818,11 +810,11 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
     if nollim_buy:
         blocks.append(_section(
             f'*🟢 눌림목 추매 후보* — 거래량 조건 충족 (월말 종가 확인 후 진입)\n'
-            f'>과거 월봉 3배↑ + 현재 눌림 거래량 낮음 = 성승현 돌반지 조건'
+            f'>눌림 거래량이 상승구간 최대 거래량의 1/7 이하 — 원서 p.364 "금상첨화"'
         ))
         fields = [
             f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*  '
-            f'(과거급등 {r.get("nollim",{}).get("surge_ratio",0):.1f}배)'
+            f'(눌림 거래량 {r.get("nollim",{}).get("vol_frac","?")})'
             for r in nollim_buy
         ]
         blocks.append(_fields(fields[:10]))
@@ -882,12 +874,8 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     trend  = [r for r in above if not r['fresh'] and ZONE_PCT < r['pct'] <= 15]
     high   = [r for r in above if r['pct'] > 15]
 
-    # 약세장 경고 배너
-    if ratio < 50 and (fresh or dip):
-        blocks.append(_section(
-            '⚠️ *약세장 주의* — 글로벌 지수 50% 미만 상승추세\n'
-            '신규 매수 신호가 있어도 소량 진입 또는 관망 권고'
-        ))
+    # (2026-09-26) 이전 판의 "글로벌 지수 50% 미만 → 약세장 주의" 배너는 원서에 없는 수치라 제거.
+    # 원서 p.394는 수치 없이 "장이 안 좋으면 신규 비중 축소" — 탑다운 섹션의 지수별 상태를 보고 판단.
 
     if fresh:
         blocks.append(_section('*★ 매수 진입 — 이번달 10이평 신규 돌파*'))
@@ -911,7 +899,7 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
         if nollim_buy:
             blocks.append(_section(
                 f'*🟢 눌림목 추매 신호 — MA10 +{ZONE_PCT}% 이내 + 거래량 조건 충족*\n'
-                f'>성승현 돌반지: 과거 거래량 3배↑ 확인 + 현재 눌림목 거래량 낮음'
+                f'>원서 p.364: 눌림 거래량이 상승구간 최대 거래량의 1/7~1/20이면 금상첨화'
             ))
             for r in nollim_buy:
                 nl = r.get('nollim', {})
@@ -920,8 +908,7 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
                     f'*섹터:* {r["sector"]}',
                     f'*현재가:* {r["close"]:,.2f}',
                     f'*MA10:* {r["ma"]:,.2f}  (*+{r["pct"]}%*)',
-                    f'*과거 최대 거래량:* {nl.get("surge_ratio",0):.1f}배↑',
-                    f'*현재 눌림목 거래량:* {nl.get("curr_vol_r",0):.1f}배 (조용)',
+                    f'*눌림 거래량:* 상승구간 최대의 {nl.get("vol_frac","?")} (원서 기준 1/7 이하)',
                 ]))
             blocks.append(_divider())
 
