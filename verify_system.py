@@ -57,7 +57,7 @@ def ok(msg):
 def check_config():
     print('\n[1] config.json 필수 항목 검증')
     required = [
-        'slack_webhook_url', 'slack_webhook_url_testa',
+        'slack_webhook_url',
         'slack_webhook_url_pension', 'stocks', 'theme_etfs',
         'safe_haven_etf', 'ma_period',
     ]
@@ -95,10 +95,10 @@ def check_slack_webhooks():
         ok('slack_webhook_url 존재 (검증 리포트 전송 성공 여부로 확인됨)')
 
     webhook_keys = [
-        'slack_webhook_url_testa',
         'slack_webhook_url_pension',
         'slack_webhook_url_sp500',
         'slack_webhook_url_ndx100',
+        'slack_webhook_url_discovery',
     ]
     for key in webhook_keys:
         url = CFG.get(key, '')
@@ -215,8 +215,8 @@ def check_signal_files():
     today = date.today()
 
     files = {
-        'testa_signals.json': 4,    # 최대 4일 (주말 포함)
         'us_signals.json':    8,    # 최대 8일 (주간 알림)
+        # testa_signals.json: 2026-09-26 테스타 매매법 자동 실행 중지(사용자 결정: 월봉매매법만) — 감시 제외
     }
 
     for fname, max_days in files.items():
@@ -288,11 +288,14 @@ def check_workflow_runs():
     # 워크플로우별 예상 실행 주기(일). sp500/ndx100은 매월 28~31일에만 도는
     # 월간 스캔이라 8일 기준으로 보면 한 달 중 대부분 "미실행"으로 오탐났었음.
     workflows = {
-        'slack_alert.yml':   8,
-        'sp500_scan.yml':   35,
-        'ndx100_scan.yml':  35,
-        'testa_scan.yml':    8,
-        'testa_morning.yml': 8,
+        # 2026-09-26: 월봉매매법만 자동 실행(테스타·실적 알림 중지) — 그 워크플로우들만 감시
+        'slack_alert.yml':          8,
+        'integrated_scan.yml':      4,
+        'trade_detector.yml':       3,
+        'sp500_scan.yml':          35,
+        'ndx100_scan.yml':         35,
+        'bullish_pattern_scan.yml': 35,
+        'discovery_scan.yml':      35,
     }
     token = os.environ.get('GITHUB_TOKEN', '')
     headers = {'Accept': 'application/vnd.github+json'}
@@ -403,7 +406,7 @@ if __name__ == '__main__':
     check_config()
     check_slack_webhooks()
     check_us_tickers()
-    check_kospi_tickers()
+    # check_kospi_tickers() — 테스타(코스피) 유니버스 점검, 2026-09-26 테스타 중지로 제외
     check_etf_tickers()
     check_signal_files()
     check_price_anomalies()

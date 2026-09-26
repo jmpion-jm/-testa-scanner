@@ -1,7 +1,8 @@
-name: 실적발표일 알림 (매주 월요일 08:00 KST)
+name: 이슈섹터 신흥 종목 발굴 (매월 말일 미국장 마감 후)
 
-# 2026-09-26 사용자 결정(월봉매매법만 자동 실행)으로 스케줄 중지 — 수동 실행만 가능
 on:
+  schedule:
+    - cron: '50 22 28-31 * *'   # 매월 28~31일 UTC 22:50 = KST 다음날 07:50 — 말일 아니면 스크립트(market_time)가 스킵
   workflow_dispatch:
 
 permissions:
@@ -25,5 +26,5 @@ jobs:
       - name: config.json 생성
         run: echo '${{ secrets.CONFIG_JSON }}' > config.json
 
-      - name: 실적발표일 스캔 실행
-        run: python -u earnings_calendar.py slack
+      - name: 이슈섹터 스캔 실행
+        run: python -u discovery_scan.py

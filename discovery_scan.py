@@ -229,6 +229,12 @@ def send_slack(results: list):
 
 
 if __name__ == '__main__':
+    # 2026-09-26: 로컬 태스크가 28~31일 미국 개장 전에 미완성 월봉으로 4번 보내던 문제 — GitHub 월말 실행으로 옮기고,
+    # 스케줄 실행이면 말일 미국장 마감 후에만 진행(market_time). 수동 실행은 언제든 진행.
+    import market_time as mt
+    if not mt.should_run_monthly_scan():
+        print('말일 미국장 마감 후가 아님 — 스킵')
+        sys.exit(0)
     print(f'\n이슈섹터 신흥 종목 발굴  {datetime.now().strftime("%Y-%m-%d %H:%M")}\n')
     results = scan()
     print(f'\n총 {len(results)}종목 분석 완료')

@@ -1,8 +1,7 @@
 name: 테스타 스캔 (평일 16:00 KST)
 
+# 2026-09-26 사용자 결정(월봉매매법만 자동 실행)으로 스케줄 중지 — 수동 실행만 가능
 on:
-  schedule:
-    - cron: '0 7 * * 1-5'   # UTC 07:00 = KST 16:00, 월~금
   workflow_dispatch:
 
 permissions:
