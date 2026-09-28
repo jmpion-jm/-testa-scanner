@@ -317,12 +317,17 @@ if __name__ == '__main__':
     send_slack(results)
 
     # 트래커 연동 — 신규돌파 자동 기록
-    try:
-        sys.path.insert(0, BASE)
-        import signal_tracker as tracker
-        for r in results:
-            if r.get('fresh'):
-                tracker.record_signal(r['ticker'], r['ticker'], '월봉MA10',
-                                      r['close'], r['ma10'])
-    except Exception as e:
-        print(f'[트래커] {e}')
+    # 2026-09-28 수정: should_run_monthly_scan()은 로컬/수동 실행이면 날짜와 상관없이 통과시킨다
+    # (테스트 목적) — 그 구멍으로 트래커까지 오염되면 안 되므로 기록만 따로 진짜 월말로 다시 막는다.
+    if not mt.is_monthend_after_close():
+        print('[트래커] 월말 확정 전이라 기록 건너뜀 (스캔 결과만 출력/전송됨)')
+    else:
+        try:
+            sys.path.insert(0, BASE)
+            import signal_tracker as tracker
+            for r in results:
+                if r.get('fresh'):
+                    tracker.record_signal(r['ticker'], r['ticker'], '월봉MA10',
+                                          r['close'], r['ma10'])
+        except Exception as e:
+            print(f'[트래커] {e}')

@@ -1,45 +1,83 @@
 {
-  "date": "2026-09-25",
+  "date": "2026-09-28",
   "signals": [
     {
       "ticker": "IONQ",
       "name": "아이온큐",
-      "pct": 1.5
+      "pct": 2.5,
+      "signal": "돌파"
+    },
+    {
+      "ticker": "ALAB",
+      "name": "아스테라랩스",
+      "pct": 43.6,
+      "signal": "지지"
     },
     {
       "ticker": "COHR",
       "name": "코히런트",
-      "pct": 3.8
+      "pct": 5.4,
+      "signal": "지지"
     },
     {
       "ticker": "GLW",
       "name": "코닝",
-      "pct": 1.7
+      "pct": 3.2,
+      "signal": "지지"
     },
     {
       "ticker": "CRSP",
       "name": "크리스퍼테라퓨틱스",
-      "pct": 4.3
+      "pct": 1.9,
+      "signal": "지지"
+    },
+    {
+      "ticker": "ADI",
+      "name": "아날로그디바이스",
+      "pct": 10.1,
+      "signal": "지지"
     },
     {
       "ticker": "CEVA",
       "name": "세바Inc",
-      "pct": 17.2
+      "pct": 22.4,
+      "signal": "돌파"
+    },
+    {
+      "ticker": "SHOP",
+      "name": "쇼피파이",
+      "pct": 10.1,
+      "signal": "지지"
     },
     {
       "ticker": "GOOGL",
       "name": "알파벳",
-      "pct": 0.5
+      "pct": 0.9,
+      "signal": "지지"
+    },
+    {
+      "ticker": "ETN",
+      "name": "이튼",
+      "pct": 12.7,
+      "signal": "지지"
     },
     {
       "ticker": "VISN",
       "name": "VISN(구CommScope)",
-      "pct": 4.0
+      "pct": 2.1,
+      "signal": "지지"
     },
     {
       "ticker": "TEL",
       "name": "TE Connectivity",
-      "pct": 0.4
+      "pct": 2.5,
+      "signal": "돌파"
+    },
+    {
+      "ticker": "GEV",
+      "name": "GE버노바",
+      "pct": 4.1,
+      "signal": "지지"
     }
   ]
 }

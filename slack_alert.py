@@ -1079,17 +1079,25 @@ def run(mode: str = 'auto'):
     # 트래커 연동 — 매수/매도 신호 자동 기록.
     # 2026-09-26 원서 원칙 전환: 매수 기록 = 월말 확정 원서 신호(돌파=후킹 p.256 / 지지 p.340)만.
     # 주간(진행 중인 달) 실행에선 매수 신호를 기록하지 않는다.
-    try:
-        import signal_tracker as tracker
-        for r in rows:
-            if do_monthly and r.get('sig') in ('돌파', '지지'):
-                tracker.record_signal(r['ticker'], r['name'], f"월봉MA10 {r['sig']}(원서)",
-                                      r['close'], r['ma'])
-            elif r.get('broke'):
-                tracker.record_sell_signal(r['ticker'], r['name'], '월봉MA10',
-                                           r['close'], 'MA10이탈')
-    except Exception as e:
-        print(f'[트래커] {e}')
+    # 2026-09-28 수정: 예전엔 do_monthly(=mode를 'monthly'로 강제해도 True)로만 걸어놔서,
+    # "슬랙 전송 테스트해줘" 같은 강제/test 실행이 월말이 아닌 날에도 미확정 데이터를 검증
+    # 기록(signal_log.json, #전략검증-트래커)에 영구히 남겼다(2026-09-28 사고: IONQ 등 10건
+    # 오기록 + RTX/VRT/ADBE 오청산). is_monthend(진짜 미국장 마감 후 말일)만 보게 고쳐서,
+    # mode를 뭘로 강제해도 진짜 월말이 아니면 트래커에는 아무것도 기록하지 않는다.
+    if is_monthend and mode != 'test':   # test 모드는 콘솔 미리보기 전용 — 월말이어도 기록하지 않음
+        try:
+            import signal_tracker as tracker
+            for r in rows:
+                if r.get('sig') in ('돌파', '지지'):
+                    tracker.record_signal(r['ticker'], r['name'], f"월봉MA10 {r['sig']}(원서)",
+                                          r['close'], r['ma'])
+                elif r.get('broke'):
+                    tracker.record_sell_signal(r['ticker'], r['name'], '월봉MA10',
+                                               r['close'], 'MA10이탈')
+        except Exception as e:
+            print(f'[트래커] {e}')
+    else:
+        print(f'[트래커] 기록 건너뜀 (mode={mode}, 실제 월말 확정={is_monthend}) — 진짜 월말 마감 후 실행에서만 기록')
     etf_rows = scan_etfs()
     print(f'테마ETF 스캔 완료: {len(etf_rows)}개')
 

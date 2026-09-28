@@ -19,7 +19,10 @@ import pandas as pd
 import urllib.request
 from datetime import datetime, date
 
-BASE     = os.path.dirname(os.path.abspath(__file__))
+BASE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BASE)
+import market_time as mt
+
 LOG_PATH = os.path.join(BASE, 'signal_log.json')
 CFG      = json.load(open(os.path.join(BASE, 'config.json'), encoding='utf-8'))
 WEBHOOK  = CFG.get('slack_webhook_url_tracker', '')
@@ -134,8 +137,12 @@ def update_open_signals():
                     updated.append(s)
                     continue
 
-            # 월봉 MA10: 이탈 체크
-            if s['strategy'] in ('월봉MA10', '이슈섹터'):
+            # 월봉 MA10: 이탈 체크 — 원서 원칙(월말 종가 확정 후 판단)이라 진짜 월말 마감 후에만 청산한다.
+            # 2026-09-28 수정: 예전엔 이 함수가 매일 실행돼도 상관없이 df.iloc[-1](진행 중인 이번 달
+            # 잠정 종가)로 이탈을 판정해 미확정 데이터로 청산시켰다(그날 사고). strategy 문자열도
+            # '월봉MA10'/'이슈섹터' 접두만 보게 startswith로 완화(slack_alert.py는 "월봉MA10 돌파(원서)"
+            # 처럼 접미가 붙어 기록한다 — 예전 exact-match면 이 분기 자체가 안 걸렸다).
+            if s['strategy'].startswith(('월봉MA10', '이슈섹터')) and mt.is_monthend_after_close():
                 df = t.history(period='6mo', interval='1mo', auto_adjust=True)
                 if not df.empty and len(df) >= MA_PERIOD:
                     df['MA10'] = df['Close'].rolling(MA_PERIOD).mean()
