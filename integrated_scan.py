@@ -154,7 +154,11 @@ def scan():
             base = dict(ticker=ticker, name=name, sector=sector,
                         sig_month=d.index[t].strftime('%Y-%m'), m_pct=round((sig_close - sig_ma) / sig_ma * 100, 1),
                         now_pct=round(now_pct, 1), since=round((now_close / sig_close - 1) * 100, 1))
-            if sig:
+            if sig and (ticker[0].isdigit() or '.' in ticker):
+                # 2026-09-26 사용자 결정: 신규 개별주 매수는 미국 종목만(slack_alert 월말 알림과 같은 기준).
+                # 조용히 빼지 않고 제외 목록에 사유를 남긴다.
+                skipped.append((ticker, name, f'{sig} 신호 — 미국 외 종목이라 신규 매수 대상 아님(9/26 결정)'))
+            elif sig:
                 pattern, broke_up, hook_month = pattern_status(ticker)
                 fnd = bp.get_fundamentals(ticker)
                 opinc = opinc_yoy(ticker)
@@ -281,18 +285,22 @@ def send_slack(buy_candidates, watch_list, skipped):
         lines.append('원서 매수 신호 종목 없음')
     w1 = [w for w in watch_list if w['kind'] == 1]
     w2 = [w for w in watch_list if w['kind'] == 2]
+    more = lambda n: f'  _…외 {n - 10}종목_' if n > 10 else ''   # 10개 넘으면 잘렸다는 걸 표시(2026-09-30)
     if w1:
         lines.append('\n*👀 이번 달 돌파 진행 중 — 월말 종가 확정 전이라 매수 아님*')
         for w in w1[:10]:
             lines.append(f"`{w['ticker']}` {w['name']} `{fmt_tag(w['ticker'], w['sector'])}`  현재 잠정 10이평 대비 {fmt_pct(w['now_pct'])}")
+        lines.append(more(len(w1)))
     if w2:
         lines.append('\n*⏳ 추세 진행 중 — 10이평 지지(눌림) 대기*')
         for w in w2[:10]:
             lines.append(f"`{w['ticker']}` {w['name']} `{fmt_tag(w['ticker'], w['sector'])}`  월말 10이평 대비 {fmt_pct(w['m_pct'])}")
+        lines.append(more(len(w2)))
     if skipped:
-        lines.append(f'\n*⚠️ 판단 불가 {len(skipped)}종목* (데이터 조회 실패/부족)')
+        lines.append(f'\n*⚠️ 제외 {len(skipped)}종목* (사유 표시)')
         for tk, nm, why in skipped[:10]:
             lines.append(f'`{tk}` {nm} — {why}')
+        lines.append(more(len(skipped)))
 
     payload = {'text': '\n'.join(lines)}
     req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'),
