@@ -16,7 +16,8 @@ venv/
 
 # 스캔 결과물 (실행할 때마다 갱신되는 산출 데이터 — 커밋 이력 노이즈 방지)
 # testa_signals.json / us_signals.json은 기존부터 추적 중이라 제외 안 함
-signal_log.json
+# signal_log.json(검증 트래커)은 2026-09-30부터 추적 — GitHub 월말 실행끼리 이어받아야 청산·통계가 쌓인다
+# (관심종목 신호·가격만 있고 보유내역·매매기록은 없음. 보유·매매는 구글시트에만)
 bnf_signals.json
 ndx100_signals.json
 sp500_signals.json

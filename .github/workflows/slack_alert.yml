@@ -18,6 +18,9 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: 최신 검증기록 받기 (앞 워크플로우가 저장한 signal_log.json 이어받기)
+        run: git pull -q --ff-only origin main || true
+
       - name: Python 설정
         uses: actions/setup-python@v6
         with:
@@ -61,4 +64,27 @@ jobs:
           done
 
           echo "::error::us_signals.json push 3회 모두 실패 — 로컬 감시목록 자동등록이 옛날 데이터를 읽게 됨"
+          exit 1
+
+      # 2026-09-30: signal_log.json이 gitignore라 GitHub에선 매번 빈 파일로 시작 → 청산이 영원히 기록 안 되고
+      # 기록이 매달 버려졌다(로컬 작업이 돌던 9/26까지는 PC 파일이 이어져서 안 드러남). 실행 후 저장소에 병합 저장.
+      - name: 검증기록 저장 (signal_log.json — 다음 실행이 이어받음)
+        if: always()
+        run: |
+          [ -f signal_log.json ] || { echo "기록 파일 없음 — 스킵"; exit 0; }
+          git diff --quiet -- signal_log.json && { echo "검증기록 변경 없음 — 스킵"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp signal_log.json "$RUNNER_TEMP/mine.json"
+          for i in 1 2 3; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            python signal_tracker.py merge "$RUNNER_TEMP/mine.json"
+            git add signal_log.json
+            if git diff --cached --quiet; then echo "병합 후 변경 없음"; exit 0; fi
+            git commit -q -m "tracker log $(date -u +'%Y-%m-%d %H:%M')"
+            if git push -q origin HEAD:main; then echo "검증기록 push 성공"; exit 0; fi
+            echo "push 실패, 재시도 ($i/3)"; sleep 5
+          done
+          echo "::error::signal_log.json 저장 3회 실패 — 이번 실행의 검증기록이 다음 실행에 이어지지 않음"
           exit 1

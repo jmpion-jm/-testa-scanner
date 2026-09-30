@@ -10,7 +10,7 @@
   python signal_tracker.py report   # 월간 통계 리포트 전송
   python signal_tracker.py list     # 현재 열린 신호 목록 출력
 """
-import sys, json, os, uuid, warnings
+import sys, json, os, uuid, warnings, time
 sys.stdout.reconfigure(encoding='utf-8')
 warnings.filterwarnings('ignore')
 
@@ -104,15 +104,34 @@ def record_sell_signal(ticker: str, name: str, strategy: str,
         _save(signals)
 
 
-# ── 열린 신호 결과 업데이트 (매일 실행) ───────────────────────
-def update_open_signals():
+def _entry_month(s: dict) -> pd.Period:
+    """신호가 기준으로 삼은 월봉. 월말 스캔은 말일(미국 기준) 밤~다음 달 1~2일(한국 날짜)에 기록되므로
+    기록일에서 5일을 빼 그 달로 본다(예: 9/1 기록 = 8월 종가 신호, 8/31 기록 = 8월)."""
+    return pd.Period(pd.Timestamp(s['date']) - pd.Timedelta(days=5), 'M')
+
+
+def first_ma10_break(df: pd.DataFrame, entry_m: pd.Period):
+    """진입 월부터 처음으로 월말 종가가 MA10 아래로 마감한 (월, 종가). 없으면 None.
+    원서 매도 규칙 그대로: 보유 중 월말 종가 10이평 이탈 = 매도. df는 완성된 월봉만 넘길 것.
+    진입 월도 포함: 월말 확정 신호는 그 달 종가가 10이평 위라 영향 없고, 예전 규칙으로 월 중간에 들어간
+    기록(예: META 7/12)은 그 달 말 종가가 이미 아래면 그 달에 판 것으로 계산해야 한다."""
+    ma = df['Close'].rolling(MA_PERIOD).mean()
+    for ts, c, m in zip(df.index, df['Close'], ma):
+        p = ts.to_period('M')
+        if p >= entry_m and pd.notna(m) and float(c) < float(m):
+            return p, float(c)
+    return None
+
+
+# ── 열린 신호 결과 업데이트 ───────────────────────────────────
+def update_open_signals(notify: bool = True):
     signals = _load()
     open_sigs = [s for s in signals if s['status'] == 'open']
     if not open_sigs:
         print('[트래커] 열린 신호 없음')
         return
 
-    updated = []
+    updated, closed = [], []
     for s in open_sigs:
         try:
             ticker = s['ticker']
@@ -126,36 +145,42 @@ def update_open_signals():
             peak = max(s.get('peak_price', s['entry_price']), price)
             s['peak_price'] = round(peak, 2)
 
-            # 테스타 일봉: 목표/손절 체크
+            # 테스타 일봉: 목표/손절 체크 (테스타는 2026-09-26 중지 — 열린 테스타 기록이 있을 때만 해당)
             if s['strategy'] == '테스타일봉':
                 if s['target'] and price >= s['target']:
-                    _close_signal(s, price, '목표달성')
+                    _close_signal(s, price, '목표달성', notify=False)
+                    closed.append(s)
                     updated.append(s)
                     continue
                 if s['stop'] and price <= s['stop']:
-                    _close_signal(s, price, '손절')
+                    _close_signal(s, price, '손절', notify=False)
+                    closed.append(s)
                     updated.append(s)
                     continue
 
-            # 월봉 MA10: 이탈 체크 — 원서 원칙(월말 종가 확정 후 판단)이라 진짜 월말 마감 후에만 청산한다.
-            # 2026-09-28 수정: 예전엔 이 함수가 매일 실행돼도 상관없이 df.iloc[-1](진행 중인 이번 달
-            # 잠정 종가)로 이탈을 판정해 미확정 데이터로 청산시켰다(그날 사고). strategy 문자열도
-            # '월봉MA10'/'이슈섹터' 접두만 보게 startswith로 완화(slack_alert.py는 "월봉MA10 돌파(원서)"
-            # 처럼 접미가 붙어 기록한다 — 예전 exact-match면 이 분기 자체가 안 걸렸다).
-            if s['strategy'].startswith(('월봉MA10', '이슈섹터')) and mt.is_monthend_after_close():
-                df = t.history(period='6mo', interval='1mo', auto_adjust=True)
-                if not df.empty and len(df) >= MA_PERIOD:
-                    df['MA10'] = df['Close'].rolling(MA_PERIOD).mean()
-                    df = df.dropna()
-                    if len(df) >= 2:
-                        curr_close = float(df['Close'].iloc[-1])
-                        curr_ma10  = float(df['MA10'].iloc[-1])
-                        prev_close = float(df['Close'].iloc[-2])
-                        prev_ma10  = float(df['MA10'].iloc[-2])
-                        if prev_close > prev_ma10 and curr_close < curr_ma10:
-                            _close_signal(s, curr_close, 'MA10이탈')
-                            updated.append(s)
-                            continue
+            # 월봉 MA10: 진입 이후 처음으로 월말 종가가 10이평 아래 마감한 달에, 그 달 종가로 청산(원서 매도 규칙).
+            # 이력(2026-09-28·30 수정):
+            #  - 예전엔 진행 중인 이번 달 잠정 종가로 판정 → 미확정 데이터로 청산(9/28 사고). 이제 완성된 월봉만 쓴다.
+            #  - strategy exact-match('월봉MA10')라 "월봉MA10 돌파(원서)" 기록은 이 분기에 안 걸렸다 → startswith.
+            #  - period='6mo'라 월봉 6개로는 MA10(10개월)이 안 나와 청산이 한 번도 기록되지 않았다(6월~9월 98건 전부 open).
+            #  - "지난달 위 → 이번달 아래"만 봐서, 이미 이탈한 뒤 밀린 기록은 영원히 open으로 남았다 → 첫 이탈월 방식.
+            if s['strategy'].startswith(('월봉MA10', '이슈섹터')):
+                df = t.history(period='5y', interval='1mo', auto_adjust=True)
+                df = df[['Close']].dropna()
+                if df.index.tz is not None:
+                    df.index = df.index.tz_localize(None)
+                # 완성된 월봉만: 이번 달 봉은 미국 말일 장 마감 후에만 포함
+                if len(df) and not mt.is_monthend_after_close() and \
+                        df.index[-1].to_period('M') == pd.Period(mt.us_ref_date(), 'M'):
+                    df = df.iloc[:-1]
+                brk = first_ma10_break(df, _entry_month(s))
+                if brk:
+                    month, close = brk
+                    _close_signal(s, close, 'MA10이탈', exit_date=month.end_time.date().isoformat(),
+                                  notify=False)
+                    closed.append(s)
+                    updated.append(s)
+                    continue
 
             updated.append(s)
 
@@ -169,18 +194,53 @@ def update_open_signals():
             if s['id'] == u['id']:
                 s.update(u)
     _save(signals)
-    print(f'[트래커] 업데이트 완료: {len(open_sigs)}개 열린 신호 점검')
+    print(f'[트래커] 업데이트 완료: {len(open_sigs)}개 열린 신호 점검, 청산 {len(closed)}건')
+    if notify and closed:
+        _notify_close_batch(closed)
 
 
-def _close_signal(s: dict, exit_price: float, reason: str):
+def _notify_close_batch(closed: list):
+    """월말 청산을 한 메시지로 — 건별로 수십 번 연달아 보내면 슬랙 웹훅 속도 제한(초당 1건)에 걸려
+    일부가 조용히 누락될 수 있다(2026-09-30). 섹션당 3000자·메시지당 50블록 한도 안에서 나눈다."""
+    closed = sorted(closed, key=lambda s: s['return_pct'])
+    wins = [s for s in closed if s['status'] == 'win']
+    lines = []
+    for s in closed:
+        icon = '🟢' if s['status'] == 'win' else '🔴'
+        try:
+            days = (date.fromisoformat(s['exit_date']) - date.fromisoformat(s['date'])).days
+        except Exception:
+            days = '?'
+        lines.append(f"{icon} `{s['ticker']}` {s['name']}  {s['entry_price']:.2f}→{s['exit_price']:.2f}  "
+                     f"*{s['return_pct']:+.1f}%*  {days}일  ({s['strategy']})")
+    blocks = [{"type": "header", "text": {"type": "plain_text",
+               "text": f"월말 청산 확정 {len(closed)}건 — 10이평 이탈"}},
+              {"type": "section", "text": {"type": "mrkdwn",
+               "text": f"수익 {len(wins)}건 / 손실 {len(closed) - len(wins)}건 · "
+                       f"평균 {sum(s['return_pct'] for s in closed) / len(closed):+.1f}%  "
+                       f"_(가상 추적 — 실제 매매 아님)_"}}]
+    chunk = []
+    for ln in lines:
+        if sum(len(x) + 1 for x in chunk) + len(ln) > 2800:
+            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(chunk)}})
+            chunk = []
+        chunk.append(ln)
+    if chunk:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": '\n'.join(chunk)}})
+    for i in range(0, len(blocks), 50):
+        _send(blocks[i:i + 50], f'월말 청산 {len(closed)}건')
+
+
+def _close_signal(s: dict, exit_price: float, reason: str, exit_date: str = None, notify: bool = True):
     ret = (exit_price - s['entry_price']) / s['entry_price'] * 100
     s['status']      = 'win' if ret >= 0 else 'loss'
-    s['exit_date']   = date.today().isoformat()
+    s['exit_date']   = exit_date or date.today().isoformat()
     s['exit_price']  = round(float(exit_price), 2)
     s['return_pct']  = round(ret, 2)
     s['exit_reason'] = reason
-    print(f'[트래커] 청산: {s["name"]}({s["ticker"]})  {ret:+.1f}%  ({reason})')
-    _notify_close(s)
+    print(f'[트래커] 청산: {s["name"]}({s["ticker"]})  {ret:+.1f}%  ({reason}, {s["exit_date"]})')
+    if notify:
+        _notify_close(s)
 
 
 # ── 통계 계산 ──────────────────────────────────────────────────
@@ -323,6 +383,7 @@ def _send(blocks: list, text: str = ''):
             print(f'[트래커] 슬랙 전송: {"성공" if ok else "실패"}')
     except Exception as e:
         print(f'[트래커] 슬랙 오류: {e}')
+    time.sleep(1.1)   # 슬랙 웹훅 속도 제한(초당 1건) — 연속 전송 시 429로 누락되지 않게(2026-09-30)
 
 
 # ── 목록 출력 ──────────────────────────────────────────────────
@@ -348,9 +409,29 @@ def print_list():
             print(f'\n[{strat}] 완료 {st["total"]}건  승률 {st["win_rate"]}%  EV {st["ev"]:+.2f}%')
 
 
+# ── 병합 (GitHub 워크플로우 저장용) ────────────────────────────
+def merge_into_log(mine_path: str):
+    """이번 실행의 기록(mine)을 저장소 최신본(LOG_PATH)에 id 기준으로 합친다.
+    월말 밤 워크플로우 5개가 겹쳐 돌아도 서로의 기록을 덮어쓰지 않게 하기 위함(2026-09-30).
+    같은 id면 청산된 쪽(status != open)을 우선, 둘 다 같으면 이번 실행 쪽을 쓴다."""
+    base = {s['id']: s for s in _load()}
+    with open(mine_path, encoding='utf-8') as f:
+        mine = json.load(f).get('signals', [])
+    for s in mine:
+        b = base.get(s['id'])
+        if b is None or not (b['status'] != 'open' and s['status'] == 'open'):
+            base[s['id']] = s
+    _save(list(base.values()))
+    print(f'[트래커] 병합 완료: {len(base)}건')
+
+
 # ── 메인 ──────────────────────────────────────────────────────
 if __name__ == '__main__':
     cmd = sys.argv[1] if len(sys.argv) > 1 else 'update'
+
+    if cmd == 'merge':
+        merge_into_log(sys.argv[2])
+        sys.exit(0)
 
     if cmd == 'update':
         print(f'\n열린 신호 업데이트  {datetime.now().strftime("%Y-%m-%d %H:%M")}')

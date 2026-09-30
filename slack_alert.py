@@ -5,7 +5,7 @@ Slack 자동 알림 시스템
   - 매달 말일    : 매매 결정 알림 (실제 매매 기준)
 """
 import sys, io, json, os, urllib.request, urllib.error
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import calendar
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -79,6 +79,16 @@ def _is_pension(accounts: list) -> bool:
 
 
 # ── 유틸 ─────────────────────────────────────────────────────
+def _is_us_ticker(ticker: str) -> bool:
+    """미국 상장 종목인가 — 2026-09-26 사용자 결정: 신규 개별주 매수는 미국 종목만
+    (한국 .KS/.KQ·일본 .T 등 거래소 접미사 붙은 종목·숫자 코드는 매수 추천에서 제외, 보유분 점검은 그대로)."""
+    return bool(ticker) and not ticker[0].isdigit() and '.' not in ticker
+
+
+# DJT(트럼프미디어): 사용자 지시(2026-09-26) — 월봉매매법 판단 대상 아님. 매도·손실 언급 금지.
+EXCLUDED_HOLDINGS = {'DJT'}
+
+
 def is_last_trading_day() -> bool:
     """미국 기준 이번 달 마지막 평일이고 그날 장이 이미 마감됐는지.
 
@@ -306,14 +316,18 @@ def _send_slack_raw(blocks: list, text: str, target: str) -> bool:
         data=payload,
         headers={'Content-Type': 'application/json'}
     )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as res:
-            ok = res.read().decode() == 'ok'
-            print(f'Slack 전송: {"성공" if ok else "실패"}')
-            return ok
-    except urllib.error.URLError as e:
-        print(f'Slack 전송 오류: {e}')
-        return False
+    import time
+    for attempt in (1, 2):   # 일시 오류(시간초과·429)는 한 번 더 시도
+        try:
+            with urllib.request.urlopen(req, timeout=20) as res:
+                ok = res.read().decode() == 'ok'
+                print(f'Slack 전송: {"성공" if ok else "실패"}')
+                time.sleep(1.1)   # 웹훅 속도 제한(초당 1건) — 분할 전송이 연달아 나갈 때 누락 방지
+                return ok
+        except Exception as e:   # 예전엔 URLError만 잡아 시간초과 등은 스크립트 전체를 죽였다(2026-09-30)
+            print(f'Slack 전송 오류({attempt}/2): {e}')
+            time.sleep(3)
+    return False
 
 
 def send_slack(blocks: list, text: str = "주식 알림", url: str = None):
@@ -406,8 +420,11 @@ def read_portfolio() -> list:
             continue
 
         ticker = _to_yf_ticker(code)
-        if not ticker:
+        if not ticker or code.upper() in EXCLUDED_HOLDINGS:
             continue
+        # 미국 종목은 시트 영문명 대신 "티커 한글명"으로 표시(사용자 원칙: 티커만/영문만 쓰지 말 것)
+        if _is_us_ticker(ticker):
+            name = f"{ticker} {STOCKS[ticker][0] if ticker in STOCKS else name}"
 
         holdings.append({
             'account': account,
@@ -583,6 +600,11 @@ def _section(text: str):
     return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
+def _fields_all(items: list) -> list:
+    """필드가 10개(슬랙 한도)를 넘으면 여러 section으로 나눠 전부 표시 — 예전 [:10]은 나머지를 말없이 버렸다(2026-09-30)."""
+    return [_fields(items[i:i + 10]) for i in range(0, len(items), 10)]
+
+
 def _fields(items: list):
     return {
         "type": "section",
@@ -657,7 +679,7 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
         for r in below:
             warn = ' ⚠️3개월연속하락' if r.get('decline3') else ''
             fields.append(f'`{r["name"]}`  *{r["pct"]:+.1f}%*{warn}  ({", ".join(r["accounts"])})')
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
 
     # 정상 홀딩
     holding = [r for r in port_rows if r['above'] and not r.get('sig')]
@@ -668,7 +690,7 @@ def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
             emoji = '▲' if r['pct'] > 15 else ('→' if r['pct'] > 0 else '▽')
             warn  = ' ⚠️3개월연속하락' if r.get('decline3') else ''
             fields.append(f'{emoji} `{r["name"]}`  *{r["pct"]:+.1f}%*{warn}')
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
 
     # 요약
     above_cnt = sum(1 for r in port_rows if r['above'])
@@ -721,14 +743,14 @@ def build_etf_section(etf_rows: list, is_monthly: bool) -> list:
     if holding:
         blocks.append(_section('*● 홀딩 유지 — 10이평 위*'))
         fields = [f'`{r["name"]}`  *+{r["pct"]}%*' for r in holding]
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
 
     # 이평 아래 (CD금리 대기)
     waiting = [r for r in etf_rows if not r['above'] and not r['broke']]
     if waiting:
         blocks.append(_section('*❌ CD금리 유지 — 10이평 아래 (재진입 금지)*'))
         fields = [f'`{r["name"]}`  *{r["pct"]}%*' for r in waiting]
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
 
     # 요약
     above_cnt = sum(1 for r in etf_rows if r['above'])
@@ -797,7 +819,7 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
     if sup:
         blocks.append(_section('*🟢 10이평 지지 테스트 중* — 월말 종가가 10이평 위면 원서 매수 신호(p.340)'))
         fields = [f'`{r["ticker"]}` {r["name"]}  *+{r["pct"]}%*  {r.get("nollim", {}).get("reason", "")}' for r in sup]
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
         blocks.append(_divider())
 
     # 전체 현황 요약
@@ -846,8 +868,11 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     # 매수 = 이번 달 종가로 확정된 돌파(후킹 캔들, p.256) 또는 10이평 지지 반등(p.340).
     # 이전 판의 "+5% 이내 지지권 / +5~15% 신규 진입 주의 / +15% 초과 매수 금지" 구간은 원서에 없어 제거.
     # 박스권 안(상단 돌파 전, p.309)은 제외하지 않고 목록 아래로 — backtest_box_range.py(2026-09-26 사용자 결정)
-    fresh = sorted([r for r in above if r.get('sig') == '돌파'], key=lambda r: bool(r.get('box')))
-    dip   = sorted([r for r in above if r.get('sig') == '지지'], key=lambda r: bool(r.get('box')))
+    # 매수 추천은 미국 종목만(2026-09-26 사용자 결정) — 관심목록의 일본·한국 종목은 신호가 나도 매수 목록에 넣지 않는다.
+    fresh = sorted([r for r in above if r.get('sig') == '돌파' and _is_us_ticker(r['ticker'])],
+                   key=lambda r: bool(r.get('box')))
+    dip   = sorted([r for r in above if r.get('sig') == '지지' and _is_us_ticker(r['ticker'])],
+                   key=lambda r: bool(r.get('box')))
     hold  = sorted([r for r in above if not r.get('sig')], key=lambda r: r['pct'])
 
     # (2026-09-26) 이전 판의 "글로벌 지수 50% 미만 → 약세장 주의" 배너는 원서에 없는 수치라 제거.
@@ -892,7 +917,7 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
             if jz.get('warn'):
                 line += f'\n  └ 장대양봉 4등분: *{jz["label"]}* (몸통 {jz["body_pct"]}%)'
             fields.append(line)
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
         blocks.append(_divider())
 
     # ── 매도 신호 ──
@@ -918,7 +943,7 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     if others_below:
         blocks.append(_section('*❌ 매수 금지 종목 — 10이평 아래 (관망)*'))
         fields = [f'`{r["ticker"]}` {r["name"]}  {r["pct"]}%' for r in others_below]
-        blocks.append(_fields(fields[:10]))
+        blocks.extend(_fields_all(fields))
         blocks.append(_divider())
 
     # 요약
@@ -947,26 +972,49 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
 
 
 # ── 월말 실행 타임라인 ────────────────────────────────────────
+def _us_open_kst() -> str:
+    """다음 미국장 개장(뉴욕 09:30)의 한국 시각 'HH:MM' — 서머타임이면 22:30, 아니면 23:30.
+    2026-09-30: 예전엔 22:30 고정이라 11월~3월(표준시)엔 한 시간 이르게 안내됐다."""
+    try:
+        from zoneinfo import ZoneInfo
+        ny = datetime.now(ZoneInfo('America/New_York'))
+        d = ny.date() + timedelta(days=1)
+        while d.weekday() >= 5:
+            d += timedelta(days=1)
+        o = datetime(d.year, d.month, d.day, 9, 30, tzinfo=ZoneInfo('America/New_York'))
+        return o.astimezone(ZoneInfo('Asia/Seoul')).strftime('%H:%M')
+    except Exception:
+        return '22:30'
+
+
 def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
     """시간·계좌·행동 3열 타임라인 자동 생성"""
+    us_open = _us_open_kst()
+    held = {r['ticker'] for r in port_rows}
 
     def is_korean(ticker: str) -> bool:
-        return bool(ticker) and (ticker.isdigit() or ticker.endswith('.KS'))
+        # 2026-09-30: 예전엔 .KQ(코스닥)를 빠뜨려 코스닥 보유종목이 이탈하면 "22:30 미국장 매도"로 잘못 표시됐다
+        return bool(ticker) and (ticker.isdigit() or ticker.endswith(('.KS', '.KQ')))
 
     # 분류
     sell_kr  = [r for r in port_rows if r.get('broke') and is_korean(r['ticker'])]
     sell_us  = [r for r in port_rows if r.get('broke') and not is_korean(r['ticker'])]
     sell_etf = [r for r in etf_rows  if r.get('broke')]
-    buy_us   = sorted([r for r in rows if r.get('above') and r.get('sig') in ('돌파', '지지')],
-                      key=lambda r: bool(r.get('box')))   # 박스권 안(p.309)은 뒤로
+    # 매수 = 미국 종목(2026-09-26 결정)의 월말 확정 원서 신호 전부. 순서만 박스권(p.309) 뒤로·돌파 먼저.
+    # 예전엔 설정 파일 순서대로 앞 3개만 잘라 보여줘서, 우선순위와 무관한 3종목이 "매수"로 찍혔다(2026-09-30).
+    buy_us   = sorted([r for r in rows if r.get('above') and r.get('sig') in ('돌파', '지지')
+                       and _is_us_ticker(r['ticker'])],
+                      key=lambda r: (bool(r.get('box')), r.get('sig') != '돌파'))
     buy_etf  = [r for r in etf_rows  if r.get('fresh')]
 
-    # Testa 신호 읽기 (당일 저장 파일)
+    # Testa 신호 — 테스타는 2026-09-26 사용자 결정으로 중지. 오늘 날짜 파일일 때만 반영(수동 실행 잔여 파일 방지).
     testa_sigs = []
     try:
         sig_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'testa_signals.json')
         with open(sig_path, encoding='utf-8') as f:
-            testa_sigs = json.load(f).get('signals', [])
+            tj = json.load(f)
+        if tj.get('date') == datetime.now().strftime('%Y-%m-%d'):
+            testa_sigs = tj.get('signals', [])
     except Exception:
         pass
 
@@ -994,13 +1042,14 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
     # 미국 시장 22:30 — 매도 먼저
     for r in sell_us:
         accs = ', '.join(r.get('accounts', [r.get('account', '미래에셋')]))
-        timeline.append(('22:30', accs, f"🔴 {r['ticker']} {r['name']} 전량 매도  (MA10 이탈)"))
+        timeline.append((us_open, accs, f"🔴 {r['name']} 전량 매도  (MA10 이탈)"))   # name = "티커 한글명"
 
-    # 미국 시장 22:30~ — 매수
-    for r in buy_us[:3]:
+    # 미국장 개장 후 — 매수 후보(몇 종목·얼마를 살지는 사용자 재량: 종목당 100~400만, 최소 7종목)
+    for r in buy_us:
         sig = '돌파' if r.get('sig') == '돌파' else '10이평 지지'
-        timeline.append(('22:30~', '미래에셋',
-            f"🟢 {r['ticker']} {r['name']} 매수  ({sig} {r['pct']:+.1f}%)" + (' 📦박스권' if r.get('box') else '')))
+        what = '추가매수 가능(보유 중)' if r['ticker'] in held else '매수 후보'
+        timeline.append((f'{us_open}~', '미래에셋',
+            f"🟢 {r['ticker']} {r['name']} {what}  ({sig} {r['pct']:+.1f}%)" + (' 📦박스권' if r.get('box') else '')))
 
     # 연금계좌 (시간 무관)
     for r in sell_etf:
@@ -1018,7 +1067,10 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
         _divider(),
         _header('📋 이달 실행 타임라인'),
         _section(table),
-        _section('_⚠️ 매도 먼저 → 매수. 손절가는 진입 즉시 지정매도 등록_'),
+        # 2026-09-30: 예전 문구 "손절가는 진입 즉시 지정매도 등록"은 원서 원칙과 충돌 — 장중 손절 주문이
+        # 체결되면 월말 종가 확인 없이 파는 셈. 매도는 오직 월말 종가 10이평 이탈 알림으로만.
+        _section('_⚠️ 매도 먼저 → 매수. 미국장 개장 10~30분 뒤 현재가 근처 지정가, 한 번에. '
+                 '장중 손절(지정매도) 주문은 걸지 않는다 — 매도는 월말 종가 10이평 이탈 알림으로만._'),
     ]
 
 
@@ -1058,6 +1110,21 @@ def run(mode: str = 'auto'):
     after_close = mt.is_after_us_close(now)
     is_friday   = mt.us_ref_date(now).weekday() == 4
     is_monthend = mt.is_monthend_after_close(now)
+
+    # ── 안전장치 (2026-09-30) ───────────────────────────────────
+    # 로컬 예약작업(Stock_Monthly_28~31 = "slack_alert.py monthly")이 관리자 권한 문제로 꺼지지 않은 채 남아,
+    # 9/28 20:10·9/30 20:51에 월말이 아닌데도 미확정 월봉으로 "월말 매매 결정" 알림을 실제 채널에 보냈다.
+    # ① 자동 실행은 GitHub만(2026-09-26 결정) — 로컬 실행은 슬랙·검증기록 없이 화면 출력만.
+    #    (정말 로컬에서 보내야 하면 환경변수 ALLOW_LOCAL_SLACK=1)
+    # ② 'monthly' 강제라도 미국 말일 장 마감 후가 아니면 월말 확정 알림을 보내지 않는다(미확정 데이터).
+    if mode != 'test':
+        if os.environ.get('GITHUB_ACTIONS') != 'true' and os.environ.get('ALLOW_LOCAL_SLACK') != '1':
+            print('[안전장치] 로컬 실행 — 자동 알림은 GitHub에서만 보냅니다. 슬랙·검증기록 없이 화면 출력만(test 모드).')
+            mode = 'test'
+        elif mode == 'monthly' and not is_monthend:
+            print(f'[안전장치] monthly 강제 실행이지만 미국 말일 장 마감 후가 아님(기준일 {mt.us_ref_date(now)}) '
+                  f'— 미확정 월봉이라 월말 알림을 보내지 않습니다. 화면 출력만(test 모드).')
+            mode = 'test'
     do_monthly  = mode == 'monthly' or (mode == 'auto' and is_monthend)
     do_weekly   = mode == 'weekly' or (mode == 'auto' and is_friday and not after_close and not do_monthly)
     if mode == 'auto' and not (do_monthly or do_weekly):
@@ -1087,8 +1154,11 @@ def run(mode: str = 'auto'):
     if is_monthend and mode != 'test':   # test 모드는 콘솔 미리보기 전용 — 월말이어도 기록하지 않음
         try:
             import signal_tracker as tracker
+            # 나스닥100·S&P500·이슈섹터 스캔이 기록한 신호는 아래 관심종목 rows에 없어서 청산 체크가 한 번도 안 됐다
+            # (2026-09-30 발견) — 열린 신호 전체를 "진입 후 첫 월말 10이평 이탈월" 기준으로 먼저 점검
+            tracker.update_open_signals()
             for r in rows:
-                if r.get('sig') in ('돌파', '지지'):
+                if r.get('sig') in ('돌파', '지지') and _is_us_ticker(r['ticker']):   # 추천 대상(미국)만 검증
                     tracker.record_signal(r['ticker'], r['name'], f"월봉MA10 {r['sig']}(원서)",
                                           r['close'], r['ma'])
                 elif r.get('broke'):
@@ -1118,6 +1188,14 @@ def run(mode: str = 'auto'):
         return
 
     sent = False
+    failed = []   # 2026-09-30: 전송 실패·시트 읽기 실패가 "성공"으로 묻히지 않게 끝에서 작업을 실패 처리
+
+    # 보유종목을 못 읽으면(시트 오류) 보유종목 매도 안내가 통째로 빠진 채 정상처럼 나가던 문제 — 알림에 경고
+    no_holdings_warn = [] if holdings else [_section(
+        '⚠️ *구글시트 보유종목을 읽지 못했습니다* — 이번 알림에 내 보유종목 매도 점검이 빠져 있습니다. '
+        '보유종목은 시트에서 직접 10이평 이탈 여부를 확인하세요.')]
+    if not holdings:
+        failed.append('보유종목 읽기')
 
     # 월말 알림 우선 (주간보다 중요)
     if do_monthly:
@@ -1125,14 +1203,20 @@ def run(mode: str = 'auto'):
 
         # ① 김학주교수 채널 — 개별종목
         blocks = build_monthly_alert(rows, port_rows=port_stocks, td=td)
+        blocks[1:1] = no_holdings_warn
         ok = send_slack(blocks, text=f'[{ym} 월말] 개별종목 매매 결정', url=WEBHOOK_URL)
         print(f'개별종목 월말 알림 전송: {"완료" if ok else "실패"}')
+        if not ok:
+            failed.append('개별종목 월말 알림')
 
         # ② 연금계좌 채널 — ETF
         if WEBHOOK_URL_PENSION:
             blocks_p = build_monthly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td)
+            blocks_p[1:1] = no_holdings_warn
             ok2 = send_slack(blocks_p, text=f'[{ym} 월말] 연금계좌 ETF 점검', url=WEBHOOK_URL_PENSION)
             print(f'연금계좌 월말 알림 전송: {"완료" if ok2 else "실패"}')
+            if not ok2:
+                failed.append('연금계좌 월말 알림')
         sent = True
 
     if do_weekly and not sent:
@@ -1146,6 +1230,10 @@ def run(mode: str = 'auto'):
             blocks_p = build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td)
             ok2 = send_slack(blocks_p, text='[주간] 연금계좌 ETF 모니터링', url=WEBHOOK_URL_PENSION)
             print(f'연금계좌 주간 알림 전송: {"완료" if ok2 else "실패"}')
+
+    if failed:
+        print(f'::error::slack_alert 실패 항목: {", ".join(failed)} — 슬랙/시트를 확인하세요')
+        sys.exit(1)
 
 
 def _print_blocks(blocks: list):

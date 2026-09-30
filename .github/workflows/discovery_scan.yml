@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write   # 검증기록(signal_log.json) 저장용
 
 jobs:
   scan:
@@ -14,6 +14,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: 최신 검증기록 받기 (앞 워크플로우가 저장한 signal_log.json 이어받기)
+        run: git pull -q --ff-only origin main || true
 
       - name: Python 설정
         uses: actions/setup-python@v6
@@ -28,3 +31,25 @@ jobs:
 
       - name: 이슈섹터 스캔 실행
         run: python -u discovery_scan.py
+
+      # 2026-09-30: signal_log.json이 gitignore라 GitHub에선 매번 빈 파일로 시작 → 기록이 매달 버려졌다. 병합 저장.
+      - name: 검증기록 저장 (signal_log.json — 다음 실행이 이어받음)
+        if: always()
+        run: |
+          [ -f signal_log.json ] || { echo "기록 파일 없음 — 스킵"; exit 0; }
+          git diff --quiet -- signal_log.json && { echo "검증기록 변경 없음 — 스킵"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp signal_log.json "$RUNNER_TEMP/mine.json"
+          for i in 1 2 3; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            python signal_tracker.py merge "$RUNNER_TEMP/mine.json"
+            git add signal_log.json
+            if git diff --cached --quiet; then echo "병합 후 변경 없음"; exit 0; fi
+            git commit -q -m "tracker log $(date -u +'%Y-%m-%d %H:%M')"
+            if git push -q origin HEAD:main; then echo "검증기록 push 성공"; exit 0; fi
+            echo "push 실패, 재시도 ($i/3)"; sleep 5
+          done
+          echo "::error::signal_log.json 저장 3회 실패 — 이번 실행의 검증기록이 다음 실행에 이어지지 않음"
+          exit 1

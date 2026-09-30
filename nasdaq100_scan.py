@@ -58,44 +58,53 @@ def is_ai_related(ticker: str) -> bool:
 
 # ── NASDAQ 100 티커 목록 ──────────────────────────────────────
 def get_ndx100_tickers() -> list:
+    """현재 나스닥100 구성종목.
+    2026-09-30: 위키백과가 구성종목 표를 'Nasdaq-100' 본문에서 'List of NASDAQ-100 companies' 문서로 옮겨,
+    예전 코드는 표를 못 찾고 매번 조용히 오래된 하드코딩 목록으로 스캔했다(현재 구성 36개 누락·편출 31개 포함).
+    이제 목록 문서를 먼저 보고, 실패하면 본문, 그래도 실패하면 예비 목록 — 예비 목록 사용은 슬랙에도 표시한다."""
     import requests
-    try:
-        url = 'https://en.wikipedia.org/wiki/Nasdaq-100'
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        resp = requests.get(url, headers=headers, timeout=15)
-        tables = pd.read_html(StringIO(resp.text))
-        # 구성 종목 테이블 찾기
-        for t in tables:
-            cols = [str(c).lower() for c in t.columns]
-            if any('ticker' in c or 'symbol' in c for c in cols):
-                col = next(c for c in t.columns if 'ticker' in str(c).lower() or 'symbol' in str(c).lower())
-                tickers = t[col].dropna().str.replace('.', '-', regex=False).tolist()
-                tickers = [t for t in tickers if isinstance(t, str) and t.isalpha() or '-' in str(t)]
-                if len(tickers) > 50:
-                    print(f'NASDAQ 100 티커 로드 완료: {len(tickers)}개')
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    last_err = None
+    for url in ('https://en.wikipedia.org/wiki/List_of_NASDAQ-100_companies',
+                'https://en.wikipedia.org/wiki/Nasdaq-100'):
+        try:
+            resp = requests.get(url, headers=headers, timeout=15)
+            resp.raise_for_status()
+            for t in pd.read_html(StringIO(resp.text)):
+                col = next((c for c in t.columns if str(c).strip().lower() in ('ticker', 'symbol')), None)
+                if col is None:
+                    continue
+                tickers = t[col].dropna().astype(str).str.strip().str.replace('.', '-', regex=False).tolist()
+                tickers = [x for x in tickers if x.replace('-', '').isalpha()]
+                if 90 <= len(tickers) <= 110:
+                    print(f'NASDAQ 100 티커 로드 완료: {len(tickers)}개 ({url.rsplit("/", 1)[-1]})')
                     return tickers
-        raise ValueError('티커 테이블을 찾지 못했습니다')
-    except Exception as e:
-        print(f'Wikipedia 로드 실패: {e}')
-        print('하드코딩 목록 사용...')
-        return _fallback_tickers()
+            last_err = '구성종목 표 없음'
+        except Exception as e:
+            last_err = e
+    print(f'Wikipedia 로드 실패: {last_err}')
+    print('⚠️ 예비(하드코딩) 목록 사용 — 구성종목 변경이 반영 안 됐을 수 있음')
+    global USED_FALLBACK
+    USED_FALLBACK = True
+    return _fallback_tickers()
+
+
+USED_FALLBACK = False
 
 
 def _fallback_tickers() -> list:
-    """Wikipedia 접근 실패 시 주요 NASDAQ 100 종목 (하드코딩)"""
+    """Wikipedia 접근 실패 시 예비 목록 — 2026-09-30 위키백과 'List of NASDAQ-100 companies' 기준 101개."""
     tickers = [
-        'AAPL','MSFT','NVDA','AMZN','META','GOOGL','GOOG','TSLA','AVGO','COST',
-        'NFLX','AMD','ADBE','QCOM','TMUS','TXN','AMAT','ISRG','INTU','AMGN',
-        'BKNG','MU','LRCX','PANW','KLAC','MRVL','CDNS','SNPS','REGN','GILD',
-        'ADI','ASML','MELI','CTAS','CRWD','TEAM','MNST','FTNT','PCAR','ORLY',
-        'WDAY','DASH','CPRT','NXPI','ROST','PAYX','AEP','DXCM','FANG','EXC',
-        'IDXX','KHC','GEHC','ODFL','FAST','CTSH','BIIB','EA','CSGP','ZS',
-        'VRSK','ANSS','ON','ILMN','DDOG','SIRI','GFS','TTWO','DLTR','WBD',
-        'ALGN','EBAY','SMCI','MTCH','RIVN','ENPH','LCID','NWSA','NWS','FOXA',
-        'FOX','WBA','CEG','XEL','AZN','PDD','BIDU','JD','VRTX','ABNB',
-        'APP','PLTR','ARM','MSTR','HOOD','COIN',
+        'AAPL','ABNB','ADBE','ADI','ADP','ADSK','AEP','ALAB','ALNY','AMAT','AMD','AMGN','AMZN','APP',
+        'ARM','ASML','AVGO','AXON','BKNG','BKR','CCEP','CDNS','CEG','CMCSA','COST','CPRT','CRWD','CRWV',
+        'CSCO','CSX','CTAS','DASH','DDOG','DXCM','EXC','FANG','FAST','FER','FTNT','GEHC','GILD','GOOG',
+        'GOOGL','HON','HONA','IDXX','INTC','INTU','ISRG','KDP','KLAC','LIN','LITE','LRCX','MAR','MCHP',
+        'MDLZ','MELI','META','MNST','MPWR','MRVL','MSFT','MSTR','MU','NBIS','NFLX','NVDA','NXPI','ODFL',
+        'ORLY','PANW','PAYX','PCAR','PDD','PEP','PLTR','PYPL','QCOM','REGN','RKLB','ROP','ROST','SBUX',
+        'SHOP','SNDK','SNPS','SPCX','STX','TER','TMUS','TRI','TSLA','TTWO','TXN','VRTX','WBD','WDAY',
+        'WDC','WMT','XEL',
     ]
-    print(f'하드코딩 목록: {len(tickers)}개')
+    print(f'예비 목록: {len(tickers)}개')
     return tickers
 
 
@@ -221,6 +230,9 @@ def send_slack(results: list):
          "text": "원서 원칙: 매수 = 월말 종가로 확정된 돌파(후킹)·10이평 지지 반등 / 매도 = 월말 종가 10이평 이탈"}]},
         {"type": "divider"},
     ]
+    if USED_FALLBACK:
+        blocks.insert(1, {"type": "section", "text": {"type": "mrkdwn",
+                          "text": "⚠️ 위키백과 구성종목을 못 불러와 예비 목록(2026-09-30 기준)으로 스캔함 — 이후 편입·편출 미반영"}})
 
     ai_tickers = [r['ticker'] for _, r in df.head(30).iterrows() if is_ai_related(r['ticker'])]
     if ai_tickers:
