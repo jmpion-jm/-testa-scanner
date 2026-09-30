@@ -41,6 +41,9 @@ SCOPES = ['https://www.googleapis.com/auth/spreadsheets']
 SRC_TAB, SNAP_TAB, LOG_TAB = '포트폴리오', '_보유스냅샷', '매매기록(자동)'
 RULE_ACCOUNTS = {'일반계좌', '미국주식', '한국주식'}   # 원서 개별주 규칙 판정 대상
 EXCLUDE_CODES = {'DJT'}                                # 사용자 요청: 판단 대상 아님
+# 국내 상장 ETF 운용사 브랜드(slack_alert.ETF_BRANDS와 같게 유지) — ETF는 아직 월봉 규칙 미적용(2026-09-30)
+ETF_BRANDS = ('KODEX', 'TIGER', 'ACE', 'SOL', 'PLUS', 'RISE', 'KBSTAR', 'HANARO', 'ARIRANG', 'KOSEF',
+              'TIMEFOLIO', 'KIWOOM', 'WON', '1Q', 'BNK', 'TRUSTON', 'UNICORN', 'FOCUS', 'HK', 'VITA', 'DAISHIN343')
 SKIP_ASSETS = {'현금', '예수금'}
 MAX_CHANGES = 8          # 한 번에 이보다 많이 바뀌면 시트 구조 변경으로 보고 기록하지 않음(오탐 방지)
 SPLIT_COST_TOL = 0.02    # 수량이 늘었는데 매입금액 변화가 2% 이내면 주식분할·수량조정으로 봄
@@ -162,6 +165,9 @@ def judge(ch) -> tuple:
         px = px * float(fx.iat[-1]) if len(fx) else None
     if ch['account'] not in RULE_ACCOUNTS:
         return '대상 아님', '연금·장기 ETF 계좌 — 개별주 규칙 적용 안 함(CLAUDE.md)', px
+    # 2026-09-30 사용자 결정: ETF는 개별종목과 성격이 달라 아직 월봉 규칙 미적용 — 일반 계좌의 ETF도 기록만
+    if str(ch['code'])[:1].isdigit() and str(ch.get('name', '')).upper().startswith(tuple(b + ' ' for b in ETF_BRANDS)):
+        return '대상 아님', 'ETF — 월봉 규칙 적용 전(2026-09-30 결정: 개별종목부터 확인 후 확장)', px
     above = bool(d['Close'].iat[k] > d['MA'].iat[k])
     pct = (d['Close'].iat[k] / d['MA'].iat[k] - 1) * 100
     if ch['dq'] > 0:

@@ -89,5 +89,22 @@ check('안전장치가 스캔·전송보다 앞', guard < run_src.index('scan_al
 check('monthly 강제는 월말 확정 필요', "elif mode == 'monthly' and not is_monthend" in run_src)
 check('트래커 기록은 진짜 월말만', "if is_monthend and mode != 'test'" in run_src)
 
+# 10) ETF는 월봉 규칙 미적용(2026-09-30 결정) — 분류와 관찰용 알림(매매 지시 문구 없음)
+check('ETF 분류', sa._is_etf({'ticker': '449450.KS', 'name': 'PLUS K방산'})
+      and sa._is_etf({'ticker': '379800.KS', 'name': 'KODEX 미국S&P500'})
+      and not sa._is_etf({'ticker': 'PLUS', 'name': 'PLUS 이플러스'})
+      and not sa._is_etf({'ticker': '005930.KS', 'name': '삼성전자'}))
+_p = [{'name': 'KODEX 미국S&P500', 'accounts': ['DC'], 'pct': -0.3, 'above': False, 'broke': True, 'fresh': False}]
+_e = [{'name': 'TIGER 2차전지', 'theme': '2차전지', 'pct': 5.0, 'above': True, 'broke': False, 'fresh': True}]
+_obs = json.dumps(sa.build_pension_observe_alert(_e, _p, '월말'), ensure_ascii=False)
+check('ETF 관찰 알림에 매매 지시 없음', all(w not in _obs for w in ('즉시', '전량 매도', '교체', '재진입'))
+      and '매매 지시 아님' in _obs)
+import ast   # trade_detector를 import하면 stdout을 바꿔 이후 출력이 깨져서 소스에서 값만 읽는다
+_td_src = open(os.path.join(BASE, 'trade_detector.py'), encoding='utf-8').read()
+_td_brands = next(ast.literal_eval(n.value) for n in ast.parse(_td_src).body
+                  if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'ETF_BRANDS')
+check('매매감지: ETF 브랜드 목록이 알림과 같음', _td_brands == sa.ETF_BRANDS
+      and "ETF — 월봉 규칙 적용 전" in _td_src)
+
 print(f'\n{"전부 통과" if not fails else f"실패 {len(fails)}건: {fails}"}')
 sys.exit(1 if fails else 0)

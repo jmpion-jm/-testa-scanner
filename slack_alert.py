@@ -78,6 +78,18 @@ def _is_pension(accounts: list) -> bool:
     return any(any(k in acc for k in PENSION_KEYWORDS) for acc in accounts)
 
 
+# 국내 상장 ETF 운용사 브랜드 — 시트 '자산' 칸이 전부 '주식'이라 이름으로 구분(2026-09-30)
+ETF_BRANDS = ('KODEX', 'TIGER', 'ACE', 'SOL', 'PLUS', 'RISE', 'KBSTAR', 'HANARO', 'ARIRANG', 'KOSEF',
+              'TIMEFOLIO', 'KIWOOM', 'WON', '1Q', 'BNK', 'TRUSTON', 'UNICORN', 'FOCUS', 'HK', 'VITA', 'DAISHIN343')
+
+
+def _is_etf(h: dict) -> bool:
+    """ETF인가 — 2026-09-30 사용자 결정: ETF는 개별종목과 성격이 달라 아직 월봉 규칙 미적용(관찰용 알림으로)."""
+    # 한국 코드(숫자로 시작)만 — 미국 종목 이름이 "티커 한글명"이라 ePlus(PLUS) 같은 티커가 브랜드로 오인되지 않게
+    t, n = str(h.get('ticker', '')), str(h.get('name', '')).upper()
+    return bool(t) and t[0].isdigit() and n.startswith(tuple(b + ' ' for b in ETF_BRANDS))
+
+
 # ── 유틸 ─────────────────────────────────────────────────────
 def _is_us_ticker(ticker: str) -> bool:
     """미국 상장 종목인가 — 2026-09-26 사용자 결정: 신규 개별주 매수는 미국 종목만
@@ -404,7 +416,7 @@ def read_portfolio() -> list:
         code    = row[3].strip()
         name    = row[4].strip()
 
-        if not code or not name or asset in EXCLUDE_ASSETS:
+        if not code or not name or asset in EXCLUDE_ASSETS or asset.startswith('#'):   # '#N/A' 요약행 제외
             continue
         if account in ('계좌', '퇴직연금', '개인계좌', '일반계좌 마누라',
                        'Total', '', '구분'):
@@ -759,6 +771,37 @@ def build_etf_section(etf_rows: list, is_monthly: bool) -> list:
         f'*ETF 요약* — 홀딩: *{above_cnt}개* | CD금리 대기: *{below_cnt}개*'
     ))
 
+    return blocks
+
+
+# ── 연금계좌 ETF — 관찰용 (2026-09-30 사용자 결정) ────────────
+def build_pension_observe_alert(etf_rows: list, port_rows: list, kind: str) -> list:
+    """연금계좌(DC/IRP/연금) ETF는 아직 월봉 규칙을 적용하지 않는다 — 사용자: "ETF는 개별종목 차트와 성격이 달라
+    개별종목부터 확인하고 확장해서 적용하려 한다"(2026-09-30). 그래서 10이평 위치만 사실대로 보여주고
+    '즉시 매도'·'CD금리 교체'·실행 타임라인 같은 매매 지시는 넣지 않는다. 적용 결정이 나면 예전 형식으로 되돌릴 것."""
+    today_str = datetime.today().strftime('%Y.%m.%d')
+    blocks = [
+        _header(f'ETF 10이평 관찰 — 연금계좌·보유 ETF ({kind})  {today_str}'),
+        _section('*📋 관찰용 — 매매 지시 아님*\n'
+                 '>ETF(연금계좌·일반계좌 모두)는 아직 월봉 10이평 규칙을 적용하지 않습니다(2026-09-30 결정: 개별종목에서 먼저 확인 후 확장).\n'
+                 '>아래는 ' + ('이번 달 월말 종가' if kind == '월말' else '진행 중인 이번 달 현재가') + ' 기준 10이평 위치입니다.'),
+    ]
+
+    def fact(r):
+        if r.get('broke'):
+            return '이번 달 10이평 아래로 내려옴'
+        if r.get('fresh'):
+            return '이번 달 10이평 위로 올라옴'
+        return '10이평 위' if r['above'] else '10이평 아래'
+
+    if port_rows:
+        blocks.append(_section('*내 보유 ETF (연금계좌·일반계좌)*'))
+        blocks.extend(_fields_all([f'`{r["name"]}` ({", ".join(r["accounts"])})  *{r["pct"]:+.1f}%* · {fact(r)}'
+                                   for r in sorted(port_rows, key=lambda r: r['pct'])]))
+    if etf_rows:
+        blocks.append(_section('*테마 ETF 관심목록*'))
+        blocks.extend(_fields_all([f'`{r["name"]}` [{r["theme"]}]  *{float(r["pct"]):+.1f}%* · {fact(r)}'
+                                   for r in sorted(etf_rows, key=lambda r: float(r['pct']))]))
     return blocks
 
 
@@ -1176,15 +1219,18 @@ def run(mode: str = 'auto'):
     port_rows = scan_portfolio(holdings)
     print(f'보유종목 스캔 완료: {len(port_rows)}종목')
 
-    # 포트폴리오 채널 분리: 연금(DC/IRP/연금) vs 일반계좌
-    port_pension = [r for r in port_rows if _is_pension(r.get('accounts', [r.get('account', '')]))]
-    port_stocks  = [r for r in port_rows if not _is_pension(r.get('accounts', [r.get('account', '')]))]
+    # 포트폴리오 채널 분리: 연금(DC/IRP/연금)·ETF(관찰용, 규칙 미적용) vs 개별종목(월봉 규칙 적용)
+    # 2026-09-30: 일반 계좌의 ETF(예: PLUS K방산)도 개별종목 알림에서 '전량 매도'로 나가던 것 — ETF는 전부 관찰용으로
+    def _obs(r):
+        return _is_pension(r.get('accounts', [r.get('account', '')])) or _is_etf(r)
+    port_pension = [r for r in port_rows if _obs(r)]
+    port_stocks  = [r for r in port_rows if not _obs(r)]
 
     if mode == 'test':
         print('\n[테스트] 개별종목 주간 알림')
         _print_blocks(build_weekly_alert(rows, port_rows=port_stocks, td=td))
         print('\n[테스트] 연금계좌 ETF 주간 알림')
-        _print_blocks(build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td))
+        _print_blocks(build_pension_observe_alert(etf_rows, port_pension, '주간'))
         return
 
     sent = False
@@ -1211,9 +1257,10 @@ def run(mode: str = 'auto'):
 
         # ② 연금계좌 채널 — ETF
         if WEBHOOK_URL_PENSION:
-            blocks_p = build_monthly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td)
+            # 연금계좌 ETF는 관찰용(규칙 적용 전, 2026-09-30 결정) — 매매 지시 문구 없음
+            blocks_p = build_pension_observe_alert(etf_rows, port_pension, '월말')
             blocks_p[1:1] = no_holdings_warn
-            ok2 = send_slack(blocks_p, text=f'[{ym} 월말] 연금계좌 ETF 점검', url=WEBHOOK_URL_PENSION)
+            ok2 = send_slack(blocks_p, text=f'[{ym} 월말] 연금계좌 ETF 10이평 관찰(매매 지시 아님)', url=WEBHOOK_URL_PENSION)
             print(f'연금계좌 월말 알림 전송: {"완료" if ok2 else "실패"}')
             if not ok2:
                 failed.append('연금계좌 월말 알림')
@@ -1227,8 +1274,8 @@ def run(mode: str = 'auto'):
 
         # ② 연금계좌 채널 — ETF
         if WEBHOOK_URL_PENSION:
-            blocks_p = build_weekly_alert([], etf_rows=etf_rows, port_rows=port_pension, td=td)
-            ok2 = send_slack(blocks_p, text='[주간] 연금계좌 ETF 모니터링', url=WEBHOOK_URL_PENSION)
+            blocks_p = build_pension_observe_alert(etf_rows, port_pension, '주간')
+            ok2 = send_slack(blocks_p, text='[주간] 연금계좌 ETF 10이평 관찰(매매 지시 아님)', url=WEBHOOK_URL_PENSION)
             print(f'연금계좌 주간 알림 전송: {"완료" if ok2 else "실패"}')
 
     if failed:
