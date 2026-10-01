@@ -106,5 +106,23 @@ _td_brands = next(ast.literal_eval(n.value) for n in ast.parse(_td_src).body
 check('매매감지: ETF 브랜드 목록이 알림과 같음', _td_brands == sa.ETF_BRANDS
       and "ETF — 월봉 규칙 적용 전" in _td_src)
 
+# 11) 월봉은 일봉에서 만든다(야후 월봉은 직전 달 봉이 틀림, 2026-10-01) — 변환 정확성 + 운영 코드가 야후 월봉을 안 씀
+import monthly_data
+_idx = pd.bdate_range('2026-08-03', '2026-10-02', tz='America/New_York')
+_dly = pd.DataFrame({'Open': range(len(_idx)), 'High': [x + 5 for x in range(len(_idx))],
+                     'Low': [x - 5 for x in range(len(_idx))], 'Close': [x + 1 for x in range(len(_idx))],
+                     'Volume': [10] * len(_idx)}, index=_idx)
+_m = monthly_data.to_monthly(_dly)
+_sep = _dly[_dly.index.month == 9]
+check('일봉→월봉 변환', len(_m) == 3 and _m.iloc[1]['Close'] == _sep['Close'].iloc[-1]
+      and _m.iloc[1]['Open'] == _sep['Open'].iloc[0] and _m.iloc[1]['High'] == _sep['High'].max()
+      and _m.iloc[1]['Low'] == _sep['Low'].min() and _m.iloc[1]['Volume'] == 10 * len(_sep))
+import re
+_bad = [f for f in ('slack_alert.py', 'integrated_scan.py', 'bullish_pattern_scan.py', 'nasdaq100_scan.py', 'sp500_scan.py',
+                    'discovery_scan.py', 'trade_detector.py', 'performance_tracker.py', 'signal_tracker.py')
+        if re.search(r"^[^#\n]*history\([^)]*interval=['\"]1mo|^[^#\n]*download\([^)]*interval=['\"]1mo|^\s*interval=['\"]1mo",
+                     open(os.path.join(BASE, f), encoding='utf-8').read(), re.M)]
+check('운영 코드가 야후 월봉(interval=1mo)을 직접 받지 않음', not _bad)
+
 print(f'\n{"전부 통과" if not fails else f"실패 {len(fails)}건: {fails}"}')
 sys.exit(1 if fails else 0)

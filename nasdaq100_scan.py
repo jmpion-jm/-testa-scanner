@@ -116,15 +116,8 @@ def scan_ndx100(tickers: list) -> list:
     print('월봉 데이터 다운로드 중...')
 
     try:
-        raw = yf.download(
-            tickers,
-            period='3y',
-            interval='1mo',
-            auto_adjust=True,
-            group_by='ticker',
-            progress=False,
-            threads=True
-        )
+        import monthly_data   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(2026-10-01)
+        raw = monthly_data.download(tickers, '3y')
     except Exception as e:
         print(f'다운로드 오류: {e}')
         return []

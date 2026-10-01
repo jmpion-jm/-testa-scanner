@@ -70,7 +70,8 @@ def prefetch(tickers):
     for i in range(0, len(tickers), 100):
         chunk = tickers[i:i + 100]
         try:
-            raw = yf.download(chunk, period='3y', interval='1mo', auto_adjust=True, group_by='ticker', progress=False, threads=True)
+            import monthly_data   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(2026-10-01)
+            raw = monthly_data.download(chunk, '3y')
         except Exception as e:
             print(f'  일괄 다운로드 실패({i}~): {e}')
             continue

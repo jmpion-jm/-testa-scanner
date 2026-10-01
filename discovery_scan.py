@@ -92,10 +92,8 @@ SP500_MAJOR = {
 
 def get_ma10_status(ticker: str) -> dict:
     try:
-        df = yf.download(ticker, period='3y', interval='1mo',
-                         auto_adjust=True, progress=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        import monthly_data   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(2026-10-01)
+        df = monthly_data.history(ticker, '3y')
         df = df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
         close = df['Close']
         if len(close) < MA_PERIOD + 2:

@@ -12,6 +12,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 import yfinance as yf
 import pandas as pd
+import monthly_data   # 월봉은 일봉으로 직접 만든다(야후 월봉 오류, 2026-10-01)
 import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
@@ -112,8 +113,10 @@ def is_last_trading_day() -> bool:
 
 
 def fetch(ticker: str, period='3y', interval='1mo') -> pd.DataFrame:
-    t = yf.Ticker(ticker)
-    df = t.history(period=period, interval=interval, auto_adjust=True)
+    if interval == '1mo':   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(monthly_data.py, 2026-10-01)
+        df = monthly_data.history(ticker, period)
+    else:
+        df = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=True)
     df.index = df.index.tz_localize(None) if df.index.tz else df.index
     return df[['Open','High','Low','Close','Volume']].dropna()
 
@@ -259,8 +262,7 @@ def topdown_analysis() -> dict:
         results[region] = {}
         for name, ticker in markets.items():
             try:
-                t  = yf.Ticker(ticker)
-                df = t.history(period='2y', interval='1mo', auto_adjust=True)
+                df = monthly_data.history(ticker, '2y')   # 야후 월봉 오류 회피(2026-10-01)
                 df.index = df.index.tz_localize(None) if df.index.tz else df.index
                 df = df[['Close']].dropna()
                 if len(df) < MA_PERIOD + 2:
@@ -465,10 +467,9 @@ def scan_portfolio(holdings: list) -> list:
     rows = []
     for h in holdings:
         try:
-            t  = yf.Ticker(h['ticker'])
-            df = t.history(period='3y', interval='1mo', auto_adjust=True)
+            df = monthly_data.history(h['ticker'], '3y')   # 야후 월봉 오류 회피(2026-10-01)
             if df.empty:
-                df = t.history(period='max', interval='1mo', auto_adjust=True)
+                df = monthly_data.history(h['ticker'], 'max')
             if df.empty or len(df) < MA_PERIOD + 2:
                 continue
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
@@ -530,10 +531,9 @@ def scan_etfs() -> list:
     rows = []
     for ticker, (name, theme) in THEME_ETFS.items():
         try:
-            t = yf.Ticker(ticker)
-            df = t.history(period='3y', interval='1mo', auto_adjust=True)
+            df = monthly_data.history(ticker, '3y')   # 야후 월봉 오류 회피(2026-10-01)
             if df.empty:
-                df = t.history(period='max', interval='1mo', auto_adjust=True)
+                df = monthly_data.history(ticker, 'max')
             df.index = df.index.tz_localize(None) if df.index.tz else df.index
             df = df[['Open','Close','Volume']].dropna()
             if len(df) < MA_PERIOD + 2:

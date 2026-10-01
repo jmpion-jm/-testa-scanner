@@ -165,7 +165,8 @@ def update_open_signals(notify: bool = True):
             #  - period='6mo'라 월봉 6개로는 MA10(10개월)이 안 나와 청산이 한 번도 기록되지 않았다(6월~9월 98건 전부 open).
             #  - "지난달 위 → 이번달 아래"만 봐서, 이미 이탈한 뒤 밀린 기록은 영원히 open으로 남았다 → 첫 이탈월 방식.
             if s['strategy'].startswith(('월봉MA10', '이슈섹터')):
-                df = t.history(period='5y', interval='1mo', auto_adjust=True)
+                import monthly_data   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(2026-10-01)
+                df = monthly_data.history(ticker, '5y')
                 df = df[['Close']].dropna()
                 if df.index.tz is not None:
                     df.index = df.index.tz_localize(None)

@@ -136,9 +136,10 @@ def yf_ticker(code: str) -> list:
 
 def monthly(code):
     for t in yf_ticker(code):
-        df = yf.Ticker(t).history(period='3y', interval='1mo', auto_adjust=True)
+        import monthly_data   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(2026-10-01)
+        df = monthly_data.history(t, '3y')
         if not df.empty:
-            df.index = df.index.tz_localize(None)
+            df.index = df.index.tz_localize(None) if df.index.tz else df.index
             return t, df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
     return None, None
 

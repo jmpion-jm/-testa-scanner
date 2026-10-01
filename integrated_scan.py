@@ -41,7 +41,11 @@ STRETCH_WATCH_PCT = 20   # 추세 진행 중 종목 중 월말 10이평 대비 2
 
 
 def fetch(ticker, interval, period):
-    df = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=True)
+    if interval == '1mo':   # 야후 월봉은 직전 달 봉이 틀린다 → 일봉으로 만든 월봉(monthly_data.py, 2026-10-01)
+        import monthly_data
+        df = monthly_data.history(ticker, period)
+    else:
+        df = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=True)
     df.index = df.index.tz_localize(None) if df.index.tz else df.index
     return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
 

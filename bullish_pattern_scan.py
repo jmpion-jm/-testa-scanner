@@ -45,13 +45,9 @@ MIN_REVENUE_GROWTH = 0.10  # 사용자 규칙: 매출성장률 10% 이상 — �
 
 def fetch_monthly(ticker: str) -> pd.DataFrame:
     # period="max": 원서 240이평(월봉=240개월) 판정에 20년 이상 필요(매매법_전체_구현명세.md C2·C6)
-    # 2026-10-01 발견: 야후 period="max" 월봉은 **마지막 봉 값이 틀린다**(예: META 9월 종가 실제 725.18 → max 777.59,
-    # IONQ 43.86 → 44.98 — 1y~10y는 전부 정확, max만 마지막 봉 하나만 다름). 그래서 긴 과거는 max에서,
-    # 최근 2년은 정확한 2y 값으로 덮어쓴다 — 틀린 마지막 봉으로 9월 후킹(1군)·패턴 완성을 오판하던 문제.
-    t = yf.Ticker(ticker)
-    old = t.history(period="max", interval="1mo", auto_adjust=True)
-    new = t.history(period="2y", interval="1mo", auto_adjust=True)
-    df = new.combine_first(old) if len(new) else old
+    # 2026-10-01: 야후 월봉(interval='1mo')은 직전 달 봉이 틀리게 나온다 → 일봉에서 직접 만든 월봉(monthly_data.py)
+    import monthly_data
+    df = monthly_data.history(ticker, 'max')
     df.index = df.index.tz_localize(None) if df.index.tz else df.index
     return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
 
@@ -60,7 +56,8 @@ def is_uptrend(ticker: str) -> bool:
     """사용자 요청 필터(2026-09 CRSP 사례 이후): 최근 월봉MA10이 3개월 전보다 높고 가격이 6개월 전보다 높은가.
     원서 규칙이 아니다 — 원서 패턴은 하락 끝 바닥에서 나오므로 이 필터가 대부분을 걸러낸다(명세서 §7)."""
     try:
-        dm = yf.Ticker(ticker).history(period="2y", interval="1mo", auto_adjust=True)
+        import monthly_data
+        dm = monthly_data.history(ticker, '2y')   # 야후 월봉 오류 회피(2026-10-01)
         if len(dm) < 8:
             return False
         dm['MA10'] = dm['Close'].rolling(MA_PERIOD).mean()
