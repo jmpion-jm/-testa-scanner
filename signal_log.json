@@ -1962,6 +1962,42 @@
       "return_pct": null,
       "exit_reason": null,
       "peak_price": 153.09
+    },
+    {
+      "id": "f06ce741",
+      "date": "2026-10-01",
+      "ticker": "COIN",
+      "name": "COIN",
+      "strategy": "월봉MA10",
+      "signal_type": "buy",
+      "entry_price": 186.41,
+      "ma10": 181.51,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 186.41
+    },
+    {
+      "id": "acf5b8b9",
+      "date": "2026-10-01",
+      "ticker": "UAL",
+      "name": "UAL",
+      "strategy": "월봉MA10",
+      "signal_type": "buy",
+      "entry_price": 110.95,
+      "ma10": 109.36,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 110.95
     }
   ]
 }
