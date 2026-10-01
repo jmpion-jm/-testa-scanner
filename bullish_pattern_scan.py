@@ -45,7 +45,13 @@ MIN_REVENUE_GROWTH = 0.10  # 사용자 규칙: 매출성장률 10% 이상 — �
 
 def fetch_monthly(ticker: str) -> pd.DataFrame:
     # period="max": 원서 240이평(월봉=240개월) 판정에 20년 이상 필요(매매법_전체_구현명세.md C2·C6)
-    df = yf.Ticker(ticker).history(period="max", interval="1mo", auto_adjust=True)
+    # 2026-10-01 발견: 야후 period="max" 월봉은 **마지막 봉 값이 틀린다**(예: META 9월 종가 실제 725.18 → max 777.59,
+    # IONQ 43.86 → 44.98 — 1y~10y는 전부 정확, max만 마지막 봉 하나만 다름). 그래서 긴 과거는 max에서,
+    # 최근 2년은 정확한 2y 값으로 덮어쓴다 — 틀린 마지막 봉으로 9월 후킹(1군)·패턴 완성을 오판하던 문제.
+    t = yf.Ticker(ticker)
+    old = t.history(period="max", interval="1mo", auto_adjust=True)
+    new = t.history(period="2y", interval="1mo", auto_adjust=True)
+    df = new.combine_first(old) if len(new) else old
     df.index = df.index.tz_localize(None) if df.index.tz else df.index
     return df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
 
