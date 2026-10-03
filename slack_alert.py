@@ -101,6 +101,11 @@ def _is_us_ticker(ticker: str) -> bool:
 # DJT(트럼프미디어): 사용자 지시(2026-09-26) — 월봉매매법 판단 대상 아님. 매도·손실 언급 금지.
 EXCLUDED_HOLDINGS = {'DJT'}
 
+# 장기 보유(월봉 규칙 제외) — 2026-10-03 사용자 결정: 구글은 처음부터 장투 목적으로 크게 산 종목.
+# 조건: 이 종목만, 보유 수량 고정(물타기·추가매수 없음), 10이평 이탈해도 매도 안내 안 함(위치만 표시).
+# 매매 감지(trade_detector)는 사용자 요청으로 그대로 판정한다 — 여기서만 다룸.
+LONG_HOLD = {'GOOGL'}
+
 
 def is_last_trading_day() -> bool:
     """미국 기준 이번 달 마지막 평일이고 그날 장이 이미 마감됐는지.
@@ -628,11 +633,17 @@ def _fields(items: list):
 def build_portfolio_section(port_rows: list, is_monthly: bool) -> list:
     if not port_rows:
         return []
+    long_hold = [r for r in port_rows if r['ticker'] in LONG_HOLD]
+    port_rows = [r for r in port_rows if r['ticker'] not in LONG_HOLD]
 
     blocks = [
         _divider(),
         _header('내 포트폴리오 — 보유종목 MA10 점검'),
     ]
+    if long_hold:   # 장기 보유(규칙 제외, 2026-10-03 사용자 결정) — 매도·추가매수 안내 없이 위치만
+        blocks.append(_section('*📌 장기 보유 — 월봉 규칙 제외 (매도·추가매수 없음, 수량 고정)*\n' + '\n'.join(
+            f'`{r["name"]}` ({", ".join(r["accounts"])})  10이평 대비 *{r["pct"]:+.1f}%* · '
+            + ('10이평 위' if r['above'] else '10이평 아래') for r in long_hold)))
 
     # 이탈 경보 (가장 중요)
     broke = [r for r in port_rows if r['broke']]
@@ -836,8 +847,8 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
             ))
         blocks.append(_divider())
 
-    # 신규 이탈 (경보)
-    broke = [r for r in below if r['broke']]
+    # 신규 이탈 (경보) — 장기 보유(LONG_HOLD)는 매도 안내 없음(2026-10-03)
+    broke = [r for r in below if r['broke'] and r['ticker'] not in LONG_HOLD]
     if broke:
         blocks.append(_section('*🚨 신규 이탈 경보* — 월말 종가 확정 후 매도 결정'))
         for r in broke:
@@ -912,6 +923,8 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     # 이전 판의 "+5% 이내 지지권 / +5~15% 신규 진입 주의 / +15% 초과 매수 금지" 구간은 원서에 없어 제거.
     # 박스권 안(상단 돌파 전, p.309)은 제외하지 않고 목록 아래로 — backtest_box_range.py(2026-09-26 사용자 결정)
     # 매수 추천은 미국 종목만(2026-09-26 사용자 결정) — 관심목록의 일본·한국 종목은 신호가 나도 매수 목록에 넣지 않는다.
+    # 장기 보유 종목(LONG_HOLD)은 수량 고정이라 매수 목록에서 뺀다(2026-10-03)
+    above = [r for r in above if r['ticker'] not in LONG_HOLD] + [r for r in above if r['ticker'] in LONG_HOLD and not r.get('sig')]
     fresh = sorted([r for r in above if r.get('sig') == '돌파' and _is_us_ticker(r['ticker'])],
                    key=lambda r: bool(r.get('box')))
     dip   = sorted([r for r in above if r.get('sig') == '지지' and _is_us_ticker(r['ticker'])],
@@ -963,8 +976,8 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
         blocks.extend(_fields_all(fields))
         blocks.append(_divider())
 
-    # ── 매도 신호 ──
-    broke = [r for r in below if r['broke']]
+    # ── 매도 신호 ── (장기 보유 LONG_HOLD는 매도 안내 없음, 2026-10-03)
+    broke = [r for r in below if r['broke'] and r['ticker'] not in LONG_HOLD]
     others_below = [r for r in below if not r['broke']]
 
     if broke:
@@ -1041,12 +1054,13 @@ def build_action_checklist(rows: list, etf_rows: list, port_rows: list) -> list:
 
     # 분류
     sell_kr  = [r for r in port_rows if r.get('broke') and is_korean(r['ticker'])]
-    sell_us  = [r for r in port_rows if r.get('broke') and not is_korean(r['ticker'])]
+    sell_us  = [r for r in port_rows if r.get('broke') and not is_korean(r['ticker'])
+                and r['ticker'] not in LONG_HOLD]   # 장기 보유는 매도 안내 없음(2026-10-03)
     sell_etf = [r for r in etf_rows  if r.get('broke')]
     # 매수 = 미국 종목(2026-09-26 결정)의 월말 확정 원서 신호 전부. 순서만 박스권(p.309) 뒤로·돌파 먼저.
     # 예전엔 설정 파일 순서대로 앞 3개만 잘라 보여줘서, 우선순위와 무관한 3종목이 "매수"로 찍혔다(2026-09-30).
     buy_us   = sorted([r for r in rows if r.get('above') and r.get('sig') in ('돌파', '지지')
-                       and _is_us_ticker(r['ticker'])],
+                       and _is_us_ticker(r['ticker']) and r['ticker'] not in LONG_HOLD],   # 장기 보유는 수량 고정
                       key=lambda r: (bool(r.get('box')), r.get('sig') != '돌파'))
     buy_etf  = [r for r in etf_rows  if r.get('fresh')]
 

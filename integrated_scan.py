@@ -38,6 +38,7 @@ STOCKS = CFG['stocks']
 STOCK_THEMES = CFG.get('stock_themes', {})   # 김학주 교수 자료 기반 투자테마(업종과 별개, 참고용)
 MA_MONTH = CFG.get('ma_period', 10)
 STRETCH_WATCH_PCT = 20   # 추세 진행 중 종목 중 월말 10이평 대비 20% 이내만 "지지 대기" 관찰로 표시(표시용)
+LONG_HOLD = {'GOOGL'}    # 장기 보유(월봉 규칙 제외, 수량 고정) — slack_alert.LONG_HOLD와 같게 유지(2026-10-03 사용자 결정)
 
 
 def fetch(ticker, interval, period):
@@ -162,6 +163,8 @@ def scan():
                 # 2026-09-26 사용자 결정: 신규 개별주 매수는 미국 종목만(slack_alert 월말 알림과 같은 기준).
                 # 조용히 빼지 않고 제외 목록에 사유를 남긴다.
                 skipped.append((ticker, name, f'{sig} 신호 — 미국 외 종목이라 신규 매수 대상 아님(9/26 결정)'))
+            elif sig and ticker in LONG_HOLD:
+                skipped.append((ticker, name, f'{sig} 신호 — 장기 보유 종목(수량 고정, 10/3 결정)이라 추가매수 안 함'))
             elif sig:
                 pattern, broke_up, hook_month = pattern_status(ticker)
                 fnd = bp.get_fundamentals(ticker)

@@ -124,5 +124,23 @@ _bad = [f for f in ('slack_alert.py', 'integrated_scan.py', 'bullish_pattern_sca
                      open(os.path.join(BASE, f), encoding='utf-8').read(), re.M)]
 check('운영 코드가 야후 월봉(interval=1mo)을 직접 받지 않음', not _bad)
 
+# 12) 장기 보유(GOOGL, 2026-10-03 결정): 알림에서 매도·추가매수 안내 없음, 매매감지는 그대로
+_lp = [{'ticker': 'GOOGL', 'name': 'GOOGL 알파벳', 'accounts': ['일반계좌'], 'pct': -1.0, 'close': 1, 'ma': 1,
+        'above': False, 'broke': True, 'sig': None},
+       {'ticker': 'AAA', 'name': 'AAA', 'accounts': ['일반계좌'], 'pct': -2.0, 'close': 1, 'ma': 1,
+        'above': False, 'broke': True, 'sig': None}]
+_lr = [{'ticker': 'GOOGL', 'name': '알파벳', 'above': True, 'sig': '지지', 'pct': 1.0}]
+_ps = json.dumps(sa.build_portfolio_section(_lp, True), ensure_ascii=False)
+_tl = json.dumps(sa.build_action_checklist(_lr, [], _lp), ensure_ascii=False)
+check('장기 보유: 매도 안내 없음', 'GOOGL' in sa.LONG_HOLD and '장기 보유' in _ps
+      and 'GOOGL 알파벳` (일반계좌)\\n현재가' not in _ps and 'GOOGL 알파벳 전량 매도' not in _tl and 'AAA 전량 매도' in _tl)
+check('장기 보유: 추가매수 후보 아님', 'GOOGL 알파벳 매수' not in _tl and '추가매수 가능' not in _tl)
+_wr = [{'ticker': 'GOOGL', 'name': '알파벳', 'sector': '빅테크', 'above': False, 'broke': True, 'sig': None,
+        'close': 1.0, 'ma': 1.1, 'pct': -1.0, 'death': False, 'decline3': False}]
+_ma = json.dumps(sa.build_monthly_alert(_wr, td=None), ensure_ascii=False)
+check('장기 보유: 월말 알림 매도 목록에 없음', '`GOOGL` 알파벳' not in _ma and '즉시 매도: *0종목*' in _ma)
+_isrc = open(os.path.join(BASE, 'integrated_scan.py'), encoding='utf-8').read()
+check('통합 스캔도 장기 보유 제외', "LONG_HOLD = {'GOOGL'}" in _isrc and 'GOOGL' not in _td_src.split('EXCLUDE_CODES')[1].split('\n')[0])
+
 print(f'\n{"전부 통과" if not fails else f"실패 {len(fails)}건: {fails}"}')
 sys.exit(1 if fails else 0)
