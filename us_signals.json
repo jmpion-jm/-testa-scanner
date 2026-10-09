@@ -1,46 +1,34 @@
 {
-  "date": "2026-10-02",
+  "date": "2026-10-09",
   "signals": [
-    {
-      "ticker": "IONQ",
-      "name": "아이온큐",
-      "pct": 1.0,
-      "signal": "돌파"
-    },
-    {
-      "ticker": "ON",
-      "name": "온세미콘덕터",
-      "pct": 3.9,
-      "signal": "돌파"
-    },
     {
       "ticker": "COHR",
       "name": "코히런트",
-      "pct": 9.3,
+      "pct": 5.0,
       "signal": "지지"
     },
     {
-      "ticker": "GLW",
-      "name": "코닝",
-      "pct": 1.8,
-      "signal": "지지"
-    },
-    {
-      "ticker": "RMBS",
-      "name": "램버스",
-      "pct": 1.7,
+      "ticker": "AAOI",
+      "name": "어플라이드옵토",
+      "pct": 1.2,
       "signal": "돌파"
     },
     {
-      "ticker": "5802.T",
-      "name": "스미토모전기",
-      "pct": 2.4,
+      "ticker": "FTI",
+      "name": "테크닙FMC",
+      "pct": 1.7,
+      "signal": "지지"
+    },
+    {
+      "ticker": "GOOGL",
+      "name": "알파벳",
+      "pct": 2.0,
       "signal": "지지"
     },
     {
       "ticker": "TEL",
       "name": "TE Connectivity",
-      "pct": 2.7,
+      "pct": 1.5,
       "signal": "돌파"
     }
   ]
