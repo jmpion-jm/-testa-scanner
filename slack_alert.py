@@ -65,6 +65,9 @@ with open(CONFIG_PATH, encoding='utf-8') as f:
 
 WEBHOOK_URL         = CFG['slack_webhook_url']
 WEBHOOK_URL_PENSION = CFG.get('slack_webhook_url_pension', '')
+# 내 보유·매매 전용 비공개 채널(2026-10-11) — 김학주 채널을 지인과 공유하려고 보유 내역을 분리.
+# 설정이 없으면 예전처럼 김학주 채널에 같이 보낸다(그 상태로는 김학주 채널을 공유하면 안 됨).
+WEBHOOK_URL_PRIVATE = CFG.get('slack_webhook_url_private', '')
 STOCKS       = CFG['stocks']          # {ticker: [name, sector]}
 THEME_ETFS   = CFG['theme_etfs']      # {ticker.KS: [name, theme]}
 SAFE_HAVEN   = CFG['safe_haven_etf']  # 357870.KS
@@ -896,7 +899,7 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
 
 # ── 2. 매달 말일 — 매매 결정 알림 ───────────────────────────
 def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = None,
-                        td: dict = None) -> list:
+                        td: dict = None, with_checklist: bool = True) -> list:
     today_str = datetime.today().strftime('%Y.%m.%d')
     ym = datetime.today().strftime('%Y년 %m월')
     regime, bullish, total = topdown_regime(td) if td else ('⚪ 미확인', 0, 0)
@@ -1021,8 +1024,9 @@ def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = Non
     if etf_rows is not None:
         blocks.extend(build_etf_section(etf_rows, is_monthly=True))
 
-    # 실행 체크리스트 (월말에만)
-    blocks.extend(build_action_checklist(rows, etf_rows or [], port_rows or []))
+    # 실행 체크리스트 (월말에만) — 공유 채널로 보낼 땐 끈다(보유·계좌가 드러남, 2026-10-11)
+    if with_checklist:
+        blocks.extend(build_action_checklist(rows, etf_rows or [], port_rows or []))
 
     return blocks
 
@@ -1262,9 +1266,20 @@ def run(mode: str = 'auto'):
         ym = mt.us_ref_date(now).strftime('%Y.%m')   # 실행이 UTC 자정을 넘겨도 마감한 달로 표기
 
         # ① 김학주교수 채널 — 개별종목
-        blocks = build_monthly_alert(rows, port_rows=port_stocks, td=td)
-        blocks[1:1] = no_holdings_warn
-        ok = send_slack(blocks, text=f'[{ym} 월말] 개별종목 매매 결정', url=WEBHOOK_URL)
+        if WEBHOOK_URL_PRIVATE:
+            # 공유 채널(김학주) = 종목 신호만 / 비공개 채널 = 내 보유종목 점검 + 실행 타임라인 (2026-10-11)
+            blocks = build_monthly_alert(rows, port_rows=None, td=td, with_checklist=False)
+            ok = send_slack(blocks, text=f'[{ym} 월말] 월봉매매법 종목 신호', url=WEBHOOK_URL)
+            blocks_m = (no_holdings_warn + build_portfolio_section(port_stocks, is_monthly=True)
+                        + build_action_checklist(rows, [], port_stocks))
+            okm = send_slack(blocks_m, text=f'[{ym} 월말] 내 보유종목 매매 결정', url=WEBHOOK_URL_PRIVATE)
+            print(f'내 보유종목 월말 알림 전송: {"완료" if okm else "실패"}')
+            if not okm:
+                failed.append('내 보유종목 월말 알림')
+        else:
+            blocks = build_monthly_alert(rows, port_rows=port_stocks, td=td)
+            blocks[1:1] = no_holdings_warn
+            ok = send_slack(blocks, text=f'[{ym} 월말] 개별종목 매매 결정', url=WEBHOOK_URL)
         print(f'개별종목 월말 알림 전송: {"완료" if ok else "실패"}')
         if not ok:
             failed.append('개별종목 월말 알림')
@@ -1282,7 +1297,13 @@ def run(mode: str = 'auto'):
 
     if do_weekly and not sent:
         # ① 김학주교수 채널 — 개별종목
-        blocks = build_weekly_alert(rows, port_rows=port_stocks, td=td)
+        if WEBHOOK_URL_PRIVATE:   # 공유 채널엔 신호만, 내 보유종목은 비공개 채널로(2026-10-11)
+            blocks = build_weekly_alert(rows, port_rows=None, td=td)
+            pb = build_portfolio_section(port_stocks, is_monthly=False)
+            if pb:
+                send_slack(pb, text='[주간] 내 보유종목 모니터링', url=WEBHOOK_URL_PRIVATE)
+        else:
+            blocks = build_weekly_alert(rows, port_rows=port_stocks, td=td)
         ok = send_slack(blocks, text='[주간] 개별종목 모니터링', url=WEBHOOK_URL)
         print(f'개별종목 주간 알림 전송: {"완료" if ok else "실패"}')
 

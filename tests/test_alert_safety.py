@@ -142,5 +142,12 @@ check('장기 보유: 월말 알림 매도 목록에 없음', '`GOOGL` 알파벳
 _isrc = open(os.path.join(BASE, 'integrated_scan.py'), encoding='utf-8').read()
 check('통합 스캔도 장기 보유 제외', "LONG_HOLD = {'GOOGL'}" in _isrc and 'GOOGL' not in _td_src.split('EXCLUDE_CODES')[1].split('\n')[0])
 
+# 13) 공유 채널 분리(2026-10-11): 비공개 채널 설정 시 김학주 채널 알림엔 보유종목·계좌·타임라인이 없다
+_sh = json.dumps(sa.build_monthly_alert(_lr, port_rows=None, td=None, with_checklist=False), ensure_ascii=False)
+check('공유용 월말 알림에 보유·계좌·타임라인 없음', all(w not in _sh for w in ('내 포트폴리오', '일반계좌', '실행 타임라인', '미래에셋')))
+_rsrc = src.split('def run(')[1]
+check('비공개 채널 있으면 보유종목은 비공개로', "url=WEBHOOK_URL_PRIVATE" in _rsrc and "port_rows=None, td=td, with_checklist=False" in _rsrc)
+check('매매감지 알림은 비공개 채널 우선', "CFG.get('slack_webhook_url_private') or CFG.get('slack_webhook_url'" in _td_src)
+
 print(f'\n{"전부 통과" if not fails else f"실패 {len(fails)}건: {fails}"}')
 sys.exit(1 if fails else 0)
