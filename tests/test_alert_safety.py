@@ -142,12 +142,15 @@ check('장기 보유: 월말 알림 매도 목록에 없음', '`GOOGL` 알파벳
 _isrc = open(os.path.join(BASE, 'integrated_scan.py'), encoding='utf-8').read()
 check('통합 스캔도 장기 보유 제외', "LONG_HOLD = {'GOOGL'}" in _isrc and 'GOOGL' not in _td_src.split('EXCLUDE_CODES')[1].split('\n')[0])
 
-# 13) 공유 채널 분리(2026-10-11): 비공개 채널 설정 시 김학주 채널 알림엔 보유종목·계좌·타임라인이 없다
+# 13) 지인 공유 채널(2026-10-11): 공유 채널엔 월말 종목 신호만, 사용자 채널은 전부, 매매감지는 사용자 채널만
 _sh = json.dumps(sa.build_monthly_alert(_lr, port_rows=None, td=None, with_checklist=False), ensure_ascii=False)
 check('공유용 월말 알림에 보유·계좌·타임라인 없음', all(w not in _sh for w in ('내 포트폴리오', '일반계좌', '실행 타임라인', '미래에셋')))
 _rsrc = src.split('def run(')[1]
-check('비공개 채널 있으면 보유종목은 비공개로', "url=WEBHOOK_URL_PRIVATE" in _rsrc and "port_rows=None, td=td, with_checklist=False" in _rsrc)
-check('매매감지 알림은 비공개 채널 우선', "CFG.get('slack_webhook_url_private') or CFG.get('slack_webhook_url'" in _td_src)
+check('공유 채널엔 신호만(보유·타임라인 없음)', "url=WEBHOOK_URL_SHARE" in _rsrc
+      and "build_monthly_alert(rows, port_rows=None, td=td, with_checklist=False)" in _rsrc.split('url=WEBHOOK_URL_SHARE')[0].rsplit('if WEBHOOK_URL_SHARE', 1)[1])
+check('사용자 채널은 전부 받음', "build_monthly_alert(rows, port_rows=port_stocks, td=td)" in _rsrc)
+check('매매감지는 공유 채널로 안 감', "url = CFG.get('slack_webhook_url', '')" in _td_src
+      and 'slack_webhook_url_share' not in _td_src.split('def slack(')[1].split('def ')[0].replace('공유 채널(slack_webhook_url_share/_private)로는', ''))
 
 # 14) 3개 유니버스 통합 후보(universe_scan, 2026-10-11): 같은 판정·같은 데이터·출처 표기·제외 규칙
 _usrc = open(os.path.join(BASE, 'universe_scan.py'), encoding='utf-8').read()

@@ -145,8 +145,8 @@ def message(out, err, month, n) -> str:
     return '\n'.join(L)
 
 
-def send(text: str) -> bool:
-    url = CFG.get('slack_webhook_url', '')
+def send(text: str, url: str = None) -> bool:
+    url = url or CFG.get('slack_webhook_url', '')
     if not url:
         return False
     for attempt in (1, 2):
@@ -188,6 +188,10 @@ if __name__ == '__main__':
     if mode == 'slack':
         ok = send(text)
         print(f'슬랙 전송: {"완료" if ok else "실패"}')
+        # 지인 공유 채널(2026-10-11) — 이 메시지엔 보유종목 정보가 없어 그대로 보낸다
+        share = CFG.get('slack_webhook_url_share') or CFG.get('slack_webhook_url_private')
+        if share:
+            print(f'공유 채널 전송: {"완료" if send(text, share) else "실패"}')
         if not ok:
             sys.exit(1)
     elif mode == 'csv':

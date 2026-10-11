@@ -235,9 +235,8 @@ def tally(ws) -> str:
 
 
 def slack(text):
-    # 매매 감지·검증기록 요약은 내 보유·매매 내역이라 비공개 채널로(2026-10-11, 김학주 채널 지인 공유 대비).
-    # 비공개 채널 설정이 없으면 예전처럼 김학주 채널.
-    url = CFG.get('slack_webhook_url_private') or CFG.get('slack_webhook_url', '')
+    # 사용자 채널(월봉매매법_알림)로 — 지인 공유 채널(slack_webhook_url_share/_private)로는 절대 보내지 않는다(보유·매매 내역)
+    url = CFG.get('slack_webhook_url', '')
     if not url:
         return
     req = urllib.request.Request(url, data=json.dumps({'text': text}).encode('utf-8'),

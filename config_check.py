@@ -17,8 +17,8 @@ print('누락:', missing or '없음', '| 비공개=공유 채널 같음:', bool(
 if missing or same:
     print('::error::설정 이상')
     sys.exit(1)
-msg = (f"🔒 [GitHub 설정 확인] CONFIG_JSON 정상 — 필요 항목 {len(need)}개 모두 있음, 관심종목 {len(cfg['stocks'])}개"
-       f"(GE버노바 {'포함' if 'GEV' in cfg['stocks'] else '없음'}). 앞으로 내 보유·매매 알림은 이 채널로 옵니다.")
+msg = (f"[GitHub 설정 확인] CONFIG_JSON 정상 — 필요 항목 {len(need)}개 모두 있음, 관심종목 {len(cfg['stocks'])}개"
+       f"(GE버노바 {'포함' if 'GEV' in cfg['stocks'] else '없음'}). 이 채널은 지인 공유용 — 월말 종목 신호만 옵니다(보유종목·매매 내역은 안 옴).")
 r = urllib.request.urlopen(urllib.request.Request(cfg['slack_webhook_url_private'], data=json.dumps({'text': msg}).encode('utf-8'),
                                                   headers={'Content-Type': 'application/json'}), timeout=20)
 ok = r.read().decode() == 'ok'
