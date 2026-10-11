@@ -1,0 +1,32 @@
+name: '월말 매수 후보 통합 (나스닥100·S&P500·김학주 → 1군·2군·박스권, 매월 말일)'
+
+# 2026-10-11 사용자 요청: 세 유니버스를 1군 기준 하나로 — universe_scan.py
+on:
+  schedule:
+    - cron: '10 23 28-31 * *'   # 매월 28~31일 UTC 23:10 = KST 다음날 08:10 — 다른 월말 스캔 뒤. 말일 아니면 스크립트가 스킵
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Python 설정
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: config.json 생성
+        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
+
+      - name: 통합 매수 후보 스캔
+        run: python -u universe_scan.py slack

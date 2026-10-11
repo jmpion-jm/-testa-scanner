@@ -149,5 +149,13 @@ _rsrc = src.split('def run(')[1]
 check('비공개 채널 있으면 보유종목은 비공개로', "url=WEBHOOK_URL_PRIVATE" in _rsrc and "port_rows=None, td=td, with_checklist=False" in _rsrc)
 check('매매감지 알림은 비공개 채널 우선', "CFG.get('slack_webhook_url_private') or CFG.get('slack_webhook_url'" in _td_src)
 
+# 14) 3개 유니버스 통합 후보(universe_scan, 2026-10-11): 같은 판정·같은 데이터·출처 표기·제외 규칙
+_usrc = open(os.path.join(BASE, 'universe_scan.py'), encoding='utf-8').read()
+check('통합 후보: 일봉 월봉·완성월·원서 판정 사용', 'monthly_data.download' in _usrc and 'completed_index(d)' in _usrc
+      and 'bkp.buy_signal' in _usrc and 'bkp.in_box' in _usrc and 'last_breakout_pattern' in _usrc)
+check('통합 후보: 출처 표기·미국만·장기보유 제외', "'김학주'" in _usrc and "'나스닥'" in _usrc and "'S&P'" in _usrc
+      and "LONG_HOLD = {'GOOGL'}" in _usrc and "t[0].isdigit() or '.' in t" in _usrc)
+check('통합 후보: 월말 마감 후만 전송', 'should_run_monthly_scan' in _usrc)
+
 print(f'\n{"전부 통과" if not fails else f"실패 {len(fails)}건: {fails}"}')
 sys.exit(1 if fails else 0)
