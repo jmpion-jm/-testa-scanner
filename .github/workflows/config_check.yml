@@ -1,0 +1,21 @@
+name: 'GitHub 설정 확인 (CONFIG_JSON — 수동 실행 전용)'
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: config.json 생성
+        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
+      - name: 설정 확인 + 비공개 채널 테스트 전송
+        run: python -u config_check.py
