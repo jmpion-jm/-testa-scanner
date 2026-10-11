@@ -148,6 +148,9 @@ check('공유용 월말 알림에 보유·계좌·타임라인 없음', all(w no
 _rsrc = src.split('def run(')[1]
 check('공유 채널엔 신호만(보유·타임라인 없음)', "url=WEBHOOK_URL_SHARE" in _rsrc
       and "build_monthly_alert(rows, port_rows=None, td=td, with_checklist=False)" in _rsrc.split('url=WEBHOOK_URL_SHARE')[0].rsplit('if WEBHOOK_URL_SHARE', 1)[1])
+_shf = json.dumps(sa.build_monthly_alert(_lr + _wr, port_rows=None, td=None, with_checklist=False), ensure_ascii=False)
+check('공유용 알림에 계좌명 괄호표기 없음', all(f'({a}' not in _shf for a in ('일반계좌', '미국주식', '한국주식', 'DC', 'IRP', '연금저축'))
+      and '미국주식 원화환산' not in src)   # 환율 문구가 계좌명 '미국주식'과 겹치지 않게(2026-10-11)
 check('사용자 채널은 전부 받음', "build_monthly_alert(rows, port_rows=port_stocks, td=td)" in _rsrc)
 check('매매감지는 공유 채널로 안 감', "url = CFG.get('slack_webhook_url', '')" in _td_src
       and 'slack_webhook_url_share' not in _td_src.split('def slack(')[1].split('def ')[0].replace('공유 채널(slack_webhook_url_share/_private)로는', ''))

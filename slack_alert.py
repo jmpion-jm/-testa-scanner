@@ -259,7 +259,7 @@ def build_exchange_rate_section(fx: dict) -> str:
     if not fx:
         return ''
     arrow  = '↑' if fx['strong'] else '↓'
-    trend  = '달러강세 (미국주식 원화환산 유리)' if fx['strong'] else '달러약세 (미국주식 원화환산 불리)'
+    trend  = '달러강세 (원화 환산 시 미국 투자 유리)' if fx['strong'] else '달러약세 (원화 환산 시 미국 투자 불리)'   # '미국주식'은 계좌명과 같아 피함
     return (f'💱 원/달러 *{fx["rate"]:,.0f}원*  MA10 {fx["ma10"]:,.0f}원  '
             f'({fx["pct"]:+.1f}%)  1개월 {fx["chg_1m"]:+.1f}%  {arrow} {trend}')
 
