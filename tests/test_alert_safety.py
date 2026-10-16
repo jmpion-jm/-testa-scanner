@@ -162,6 +162,8 @@ check('통합 후보: 일봉 월봉·완성월·원서 판정 사용', 'monthly_
 check('통합 후보: 출처 표기·미국만·장기보유 제외', "'김학주'" in _usrc and "'나스닥'" in _usrc and "'S&P'" in _usrc
       and "LONG_HOLD = {'GOOGL'}" in _usrc and "t[0].isdigit() or '.' in t" in _usrc)
 check('통합 후보: 월말 마감 후만 전송', 'should_run_monthly_scan' in _usrc)
+check('통합 후보: 🎯 5~30%는 참고 표시·정렬만(제외 아님)', 'REF_BAND = (5.0, 30.0)' in _usrc
+      and 'not in_band(c)' in _usrc and 'if not in_band' not in _usrc.replace('not in_band(c), ', ''))
 
 print(f'\n{"전부 통과" if not fails else f"실패 {len(fails)}건: {fails}"}')
 sys.exit(1 if fails else 0)

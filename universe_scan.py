@@ -29,6 +29,17 @@ import market_time as mt
 CFG = json.load(open(os.path.join(BASE, 'config.json'), encoding='utf-8'))
 STOCKS = CFG.get('stocks', {})
 LONG_HOLD = {'GOOGL'}
+# 참고 구간(2026-10-17 사용자 결정 — 규칙 아님, 표시·정렬만): 신호 때 10이평 대비 +5~30%.
+# 근거(S&P500∪나스닥100 30년, 청산 완료 29,744건): 다음 달 바로 손절 비율 0~5% 33.7% / 5~15% 14.3% / 15~30% 5.8%,
+# 평균 수익 +9.2% / +12.8% / +25.4%. 대신 손절 시 손실은 −7% / −12% / −22%로 커짐 → 멀수록 금액은 작게.
+REF_BAND = (5.0, 30.0)
+REF_MARK = '🎯'
+
+
+def in_band(c) -> bool:
+    return REF_BAND[0] <= c['pct'] < REF_BAND[1]
+
+
 TIER_LABEL = {1: '🥇 1군 — 원서 패턴 완성으로 시작한 상승', 2: '🥈 2군 — 원서 매수 신호', 3: '🥉 3군 — 📦박스권 안(후순위)'}
 
 
@@ -118,7 +129,7 @@ def scan() -> tuple:
             err.append((c['ticker'], f'패턴 판정 실패: {str(e)[:40]}'))
         c['name'], c['sector'] = info(c['ticker'])
         c['tier'] = 3 if c['box'] else (1 if c['broke_up'] else 2)
-    out.sort(key=lambda c: (c['tier'], c['sector'], c['signal'] != '돌파', c['ticker']))
+    out.sort(key=lambda c: (c['tier'], c['sector'], not in_band(c), c['signal'] != '돌파', c['ticker']))   # 🎯 먼저(참고)
     return out, err, month, len(src)
 
 
@@ -126,7 +137,9 @@ def message(out, err, month, n) -> str:
     cnt = {k: sum(1 for c in out if c['tier'] == k) for k in (1, 2, 3)}
     L = [f'*월말 매수 후보 — 나스닥100·S&P500·김학주 통합* ({month}말 확정)',
          f'_{n}종목 중 원서 매수 신호 {len(out)}종목 · 1군 {cnt[1]} / 2군 {cnt[2]} / 3군 {cnt[3]}_',
-         '_1군 안에서는 데이터상 우열 없음 → 업종이 겹치지 않게 고르기. 매출·실적은 순위에 안 씀._']
+         '_1군 안에서는 데이터상 우열 없음 → 업종이 겹치지 않게 고르기. 매출·실적은 순위에 안 씀._',
+         f'_{REF_MARK} = 10이평 대비 +5~30% (참고): 과거 다음 달 바로 손절 비율이 낮았음(0~5% 34% → 5~15% 14% → 15~30% 6%). '
+         '단 손절 시 손실은 커서(−12~−22%) 멀수록 금액은 작게._']
     for tier in (1, 2, 3):
         rows = [c for c in out if c['tier'] == tier]
         if not rows:
@@ -138,7 +151,8 @@ def message(out, err, month, n) -> str:
                 sec = c['sector']
                 L.append(f'  _{sec}_')
             pat = f" · {c['pattern']}(후킹 {c['hook']})" if c.get('pattern') else ''
-            L.append(f"  `{c['ticker']}` {c['name']}  {c['signal']} 10이평 {c['pct']:+.1f}%{pat}  [{c['src']}]")
+            mark = f' {REF_MARK}' if in_band(c) else ''
+            L.append(f"  `{c['ticker']}` {c['name']}  {c['signal']} 10이평 {c['pct']:+.1f}%{mark}{pat}  [{c['src']}]")
     if err:
         L.append(f'\n_⚠️ 판정 실패 {len(err)}건: ' + ', '.join(t for t, _ in err[:10]) + '_')
     L.append('\n_원칙: 월말 종가 확정 신호만. 매수 = 다음 미국장 개장 10~30분 뒤 현재가 근처 지정가. 매도 = 월말 종가 10이평 이탈._')
