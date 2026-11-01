@@ -13,7 +13,8 @@
 
 실행: python universe_scan.py            (콘솔)
       python universe_scan.py slack      (김학주 채널로 전송)
-      python universe_scan.py csv        (영웅문용 1군 CSV → C:\\KiwoomGlobal\\temp\\tier1_all.csv, PC에서)
+      python universe_scan.py share      (공유 채널에만 — 매수 + 매도)
+      python universe_scan.py csv       (영웅문용 1군 CSV → C:\\KiwoomGlobal\\temp\\tier1_all.csv, PC에서)
 """
 import sys, os, json, warnings, urllib.request, time
 warnings.filterwarnings('ignore')
@@ -88,7 +89,7 @@ def info(t: str) -> tuple:
 def scan() -> tuple:
     src = universe()
     tickers = sorted(src)
-    out, err, month = [], [], None
+    out, sells, err, month = [], [], [], None
     for i in range(0, len(tickers), 100):
         chunk = tickers[i:i + 100]
         try:
@@ -107,6 +108,11 @@ def scan() -> tuple:
                 k = completed_index(d)
                 sig = bkp.buy_signal(d, k)
                 month = d.index[k].strftime('%Y-%m')
+                # 매도 신호(2026-11-01 사용자 요청: 공유자가 매수·매도를 같이 보고 선택) — 원서 매도 규칙 그대로
+                # 지난달 종가 10이평 위 → 이번 달 종가 아래(월말 확정 하향 이탈)
+                ma, ma0 = d['MA'].iat[k], d['MA'].iat[k - 1]
+                if pd.notna(ma) and pd.notna(ma0) and d['Close'].iat[k] < ma and d['Close'].iat[k - 1] >= ma0:
+                    sells.append(dict(ticker=t, src='/'.join(src[t]), pct=round((d['Close'].iat[k] / ma - 1) * 100, 1)))
                 if not sig:
                     continue
                 out.append(dict(ticker=t, signal=sig, box=bool(bkp.in_box(d, k)), src='/'.join(src[t]),
@@ -130,13 +136,19 @@ def scan() -> tuple:
         c['name'], c['sector'] = info(c['ticker'])
         c['tier'] = 3 if c['box'] else (1 if c['broke_up'] else 2)
     out.sort(key=lambda c: (c['tier'], c['sector'], not in_band(c), c['signal'] != '돌파', c['ticker']))   # 🎯 먼저(참고)
-    return out, err, month, len(src)
+    for c in sells:
+        c['name'], c['sector'] = info(c['ticker'])
+    sells.sort(key=lambda c: (c['sector'], c['ticker']))
+    return out, sells, err, month, len(src)
 
 
-def message(out, err, month, n) -> str:
+def message(out, err, month, n, sells=None) -> str:
+    """sells(매도 신호)는 지인 공유 채널용(2026-11-01 사용자: 공유자는 매수·매도를 보고 스스로 선택,
+    사용자 채널은 지금처럼) — None이면 예전 그대로."""
     cnt = {k: sum(1 for c in out if c['tier'] == k) for k in (1, 2, 3)}
     L = [f'*월말 매수 후보 — 나스닥100·S&P500·김학주 통합* ({month}말 확정)',
-         f'_{n}종목 중 원서 매수 신호 {len(out)}종목 · 1군 {cnt[1]} / 2군 {cnt[2]} / 3군 {cnt[3]}_',
+         f'_{n}종목 중 원서 매수 신호 {len(out)}종목 · 1군 {cnt[1]} / 2군 {cnt[2]} / 3군 {cnt[3]}'
+         + (f' · 매도 신호 {len(sells)}종목' if sells is not None else '') + '_',
          '_1군 안에서는 데이터상 우열 없음 → 업종이 겹치지 않게 고르기. 매출·실적은 순위에 안 씀._',
          f'_{REF_MARK} = 10이평 대비 +5~30% (참고): 과거 다음 달 바로 손절 비율이 낮았음(0~5% 34% → 5~15% 14% → 15~30% 6%). '
          '단 손절 시 손실은 커서(−12~−22%) 멀수록 금액은 작게._']
@@ -155,6 +167,15 @@ def message(out, err, month, n) -> str:
             pat = f" · {c['pattern']}(후킹 {c['hook']})" if c.get('pattern') else ''
             mark = f' {REF_MARK}' if in_band(c) else ''
             L.append(f"  `{c['ticker']}` {c['name']}  {c['signal']} 10이평 {c['pct']:+.1f}%{mark}{pat}  [{c['src']}]")
+    if sells:
+        L.append(f'\n*🔴 매도 — 이번 달 종가 10이평 하향 이탈 ({len(sells)})*')
+        L.append('_보유 중이면 다음 미국장에서 매도(예외 없음). 보유하지 않았으면 해당 없음._')
+        sec = None
+        for c in sells:
+            if c['sector'] != sec:
+                sec = c['sector']
+                L.append(f'  _{sec}_')
+            L.append(f"  `{c['ticker']}` {c['name']}  이탈 10이평 {c['pct']:+.1f}%  [{c['src']}]")
     if err:
         L.append(f'\n_⚠️ 판정 실패 {len(err)}건: ' + ', '.join(t for t, _ in err[:10]) + '_')
     L.append('\n_원칙: 월말 종가 확정 신호만. 매수 = 다음 미국장 개장 10~30분 뒤 현재가 근처 지정가. 매도 = 월말 종가 10이평 이탈._')
@@ -198,9 +219,10 @@ if __name__ == '__main__':
     if mode == 'slack' and not mt.should_run_monthly_scan():
         print('말일 미국장 마감 후가 아니라 스킵 (market_time.should_run_monthly_scan)')
         sys.exit(0)
-    out, err, month, n = scan()
-    text = message(out, err, month, n)
-    print(text)
+    out, sells, err, month, n = scan()
+    text = message(out, err, month, n)                     # 사용자 채널 — 예전 그대로
+    text_share = message(out, err, month, n, sells=sells)  # 공유 채널 — 매수 + 매도
+    print(text_share)
     if mode == 'rehearsal':
         # 월말 리허설(매월 25일, 2026-11-01) — 정상 여부 요약만 사용자 채널로. 종목 목록은 보내지 않는다(매매 결정 아님)
         bad = len(err) > n * 0.2
@@ -214,10 +236,17 @@ if __name__ == '__main__':
     elif mode == 'slack':
         ok = send(text)
         print(f'슬랙 전송: {"완료" if ok else "실패"}')
-        # 지인 공유 채널(2026-10-11) — 이 메시지엔 보유종목 정보가 없어 그대로 보낸다
+        # 지인 공유 채널(2026-10-11) — 보유종목 정보 없음. 매도 신호까지 넣어 공유자가 스스로 선택(2026-11-01)
         share = CFG.get('slack_webhook_url_share') or CFG.get('slack_webhook_url_private')
         if share:
-            print(f'공유 채널 전송: {"완료" if send(text, share) else "실패"}')
+            print(f'공유 채널 전송: {"완료" if send(text_share, share) else "실패"}')
+        if not ok:
+            sys.exit(1)
+    elif mode == 'share':
+        # 공유 채널에만 다시 보내기(2026-11-01 10월분 매도 포함 재전송용) — 사용자 채널엔 안 보냄
+        share = CFG.get('slack_webhook_url_share') or CFG.get('slack_webhook_url_private')
+        ok = bool(share) and send(text_share, share)
+        print(f'공유 채널 전송: {"완료" if ok else "실패"}')
         if not ok:
             sys.exit(1)
     elif mode == 'csv':
