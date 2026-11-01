@@ -10,6 +10,7 @@ META 725.18 → 777.59). 9월 마지막 거래일 저녁(새 달 시작 전)에�
 """
 import pandas as pd
 import yfinance as yf
+import market_time as mt
 
 AGG = {'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}
 
@@ -22,7 +23,12 @@ def to_monthly(daily: pd.DataFrame) -> pd.DataFrame:
     daily = daily[cols].dropna(subset=['Close'])
     if len(daily) == 0:
         return pd.DataFrame(columns=cols)
-    return daily.resample('MS').agg({c: AGG[c] for c in cols}).dropna(subset=['Close'])
+    m = daily.resample('MS').agg({c: AGG[c] for c in cols}).dropna(subset=['Close'])
+    # 복구 재전송(market_time.replay_month, 2026-11-01): 그 달 이후 봉은 버려서 다음 달에 다시 돌려도 그 달 말 기준으로 판정
+    rm = mt.replay_month()
+    if rm:
+        m = m[[(ts.year, ts.month) <= rm for ts in m.index]]
+    return m
 
 
 def history(ticker: str, period: str = '3y') -> pd.DataFrame:

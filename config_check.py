@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GitHub 비밀설정(CONFIG_JSON) 확인 — 값은 출력하지 않고 필요한 키가 있는지만 보고, 비공개 채널로 확인 메시지 전송.
+"""GitHub 비밀설정(CONFIG_JSON) 확인 — 값은 출력하지 않고 필요한 키가 있는지만 보고, 사용자 채널로 확인 메시지 전송.
 수동 실행 전용(.github/workflows/config_check.yml). 2026-10-11 CONFIG_JSON 갱신 확인용으로 만듦."""
 import json, sys, urllib.request
 
@@ -17,10 +17,10 @@ print('누락:', missing or '없음', '| 비공개=공유 채널 같음:', bool(
 if missing or same:
     print('::error::설정 이상')
     sys.exit(1)
-msg = (f"[GitHub 설정 확인] CONFIG_JSON 정상 — 필요 항목 {len(need)}개 모두 있음, 관심종목 {len(cfg['stocks'])}개"
-       f"(GE버노바 {'포함' if 'GEV' in cfg['stocks'] else '없음'}). 이 채널은 지인 공유용 — 월말 종목 신호만 옵니다(보유종목·매매 내역은 안 옴).")
-r = urllib.request.urlopen(urllib.request.Request(cfg['slack_webhook_url_private'], data=json.dumps({'text': msg}).encode('utf-8'),
+# 2026-11-01: 확인 메시지는 사용자 채널로(예전엔 공유 채널로 가서 지인이 보게 됨)
+msg = (f"[GitHub 설정 확인] CONFIG_JSON 정상 — 필요 항목 {len(need)}개 모두 있음, 관심종목 {len(cfg['stocks'])}개")
+r = urllib.request.urlopen(urllib.request.Request(cfg['slack_webhook_url'], data=json.dumps({'text': msg}).encode('utf-8'),
                                                   headers={'Content-Type': 'application/json'}), timeout=20)
 ok = r.read().decode() == 'ok'
-print('비공개 채널 전송:', '성공' if ok else '실패')
+print('사용자 채널 전송:', '성공' if ok else '실패')
 sys.exit(0 if ok else 1)

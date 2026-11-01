@@ -25,7 +25,11 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Google 인증 파일 생성
-        run: echo '${{ secrets.GOOGLE_CREDS_JSON }}' > credentials.json
+        env:
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_CREDS_JSON" > credentials.json
+          python3 -c "import json; json.load(open('credentials.json', encoding='utf-8'))" || { echo "::error::GOOGLE_CREDS_JSON이 비었거나 올바른 JSON이 아님"; exit 1; }
 
       - name: 국내 ETF 단가 업데이트 실행
         env:

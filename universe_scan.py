@@ -140,6 +140,8 @@ def message(out, err, month, n) -> str:
          '_1군 안에서는 데이터상 우열 없음 → 업종이 겹치지 않게 고르기. 매출·실적은 순위에 안 씀._',
          f'_{REF_MARK} = 10이평 대비 +5~30% (참고): 과거 다음 달 바로 손절 비율이 낮았음(0~5% 34% → 5~15% 14% → 15~30% 6%). '
          '단 손절 시 손실은 커서(−12~−22%) 멀수록 금액은 작게._']
+    if mt.replay_month():   # 복구 재전송(2026-11-01)
+        L.insert(1, '>🔁 *다시 보내는 알림* — 원래 월말 자동 알림이 실패해 늦게 보냅니다. 판정은 그 달 말 종가 기준 그대로입니다.')
     for tier in (1, 2, 3):
         rows = [c for c in out if c['tier'] == tier]
         if not rows:
@@ -199,7 +201,17 @@ if __name__ == '__main__':
     out, err, month, n = scan()
     text = message(out, err, month, n)
     print(text)
-    if mode == 'slack':
+    if mode == 'rehearsal':
+        # 월말 리허설(매월 25일, 2026-11-01) — 정상 여부 요약만 사용자 채널로. 종목 목록은 보내지 않는다(매매 결정 아님)
+        bad = len(err) > n * 0.2
+        ok = send(f'🧪 *통합 매수 후보 리허설 — {"⚠️ 데이터 이상" if bad else "정상 작동"}* (매매 결정 아님)\n'
+                  f'• {n}종목 중 {n - len(err)}종목 판정 ✅ (실패 {len(err)}건)\n'
+                  f'_진짜 통합 후보는 월말 매매 결정 알림 뒤에 옵니다._')
+        print(f'리허설 결과 전송: {"완료" if ok else "실패"}')
+        if not ok or bad:
+            print('::error::통합 후보 리허설 실패 — ' + ('슬랙 전송 실패' if not ok else f'판정 실패 {len(err)}/{n}건'))
+            sys.exit(1)
+    elif mode == 'slack':
         ok = send(text)
         print(f'슬랙 전송: {"완료" if ok else "실패"}')
         # 지인 공유 채널(2026-10-11) — 이 메시지엔 보유종목 정보가 없어 그대로 보낸다

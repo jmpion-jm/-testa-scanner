@@ -27,6 +27,10 @@ Disable-ScheduledTask가 거부됨 → schtasks /Change /DISABLE로 해결). 추
 - 외부 스크래핑(`pd.read_html` 등)은 로컬에 우연히 깔린 패키지(lxml 등)에 의존하지 말고 `requirements.txt`에 명시할 것
 
 ## 문제 생기면 여기부터
+0. **2026-10-11~10-31 사고**: CONFIG_JSON 갱신 후 GitHub 실행 확인을 안 해 설정 쓰는 작업이 전부 실패, 10월 월말 알림 미도착.
+   안전장치(2026-11-01): 설정 생성 단계가 JSON 검사 후 명확히 실패 / 모든 주요 작업 실패 시 사용자 채널로 "⚠️ 자동 실행 실패"
+   (`notify_failure.py`) / 매월 25일 `monthend_rehearsal.yml` 리허설 / 지난 월말 재전송 = `ops/replay_month.txt`에 'YYYY-MM'
+   적어 push(`monthend_replay.yml`, 가장 최근 끝난 달만). **설정·워크플로우를 바꾸면 그 자리에서 GitHub 실행+슬랙 도착까지 확인할 것.**
 1. `.github/workflows/`에서 관련 워크플로우 스케줄/최근 실행 확인 (`Invoke-RestMethod`로 GitHub API 조회 가능, 공개 저장소라 인증 불필요·로그 원문만 403)
 2. `스케줄태스크_실행오류_수정_2026-08-01.md` — 이미 확인된 원인/조치 대조
 3. 프로젝트 메모리(`project_stock_system.md`) — 계좌 구성, 슬랙 채널, 매매 전략 상세

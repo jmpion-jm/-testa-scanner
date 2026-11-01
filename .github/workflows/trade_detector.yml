@@ -26,10 +26,19 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: config.json 생성
-        run: echo '${{ secrets.CONFIG_JSON }}' > config.json
+        # 2026-11-01: echo '...'는 값이 비거나 깨져도 성공으로 넘어갔다 → 환경변수로 받아 JSON 검사 후 명확히 실패
+        env:
+          CONFIG_JSON: ${{ secrets.CONFIG_JSON }}
+        run: |
+          printf '%s' "$CONFIG_JSON" > config.json
+          python3 -c "import json; json.load(open('config.json', encoding='utf-8'))" || { echo "::error::CONFIG_JSON이 비었거나 올바른 JSON이 아님 — GitHub Settings > Secrets > Actions에서 PC의 config.json 전체를 다시 붙여넣을 것"; exit 1; }
 
       - name: Google 인증 파일 생성
-        run: echo '${{ secrets.GOOGLE_CREDS_JSON }}' > credentials.json
+        env:
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_CREDS_JSON" > credentials.json
+          python3 -c "import json; json.load(open('credentials.json', encoding='utf-8'))" || { echo "::error::GOOGLE_CREDS_JSON이 비었거나 올바른 JSON이 아님"; exit 1; }
 
       - name: 매매 감지 실행
         env:
@@ -41,3 +50,7 @@ jobs:
         env:
           GSHEET_CREDS_PATH: credentials.json
         run: python -u performance_tracker.py
+
+      - name: 실패 알림 (사용자 채널)
+        if: failure()
+        run: python3 notify_failure.py

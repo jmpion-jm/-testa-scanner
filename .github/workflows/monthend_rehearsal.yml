@@ -1,0 +1,56 @@
+name: 월말 리허설 (매월 25일 — 실제 환경으로 월말 전 과정 점검, 매매 결정 아님)
+
+# 2026-11-01: 10/11 GitHub 설정이 깨진 걸 10/31 월말 당일에야 알았다. 월말 5일 전에 실제 설정·시트·데이터·슬랙으로
+# 전 과정을 돌려 보고 "정상 작동" 요약만 사용자 채널로 보낸다(종목 목록·검증기록 없음). 실패하면 실패 알림.
+on:
+  schedule:
+    - cron: '0 1 25 * *'   # 매월 25일 UTC 01:00 = KST 10:00
+  push:
+    branches: [main]
+    paths: ['ops/rehearsal_request.txt']   # 수동 점검: 이 파일을 고쳐 push
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Python 설정
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: config.json 생성
+        env:
+          CONFIG_JSON: ${{ secrets.CONFIG_JSON }}
+        run: |
+          printf '%s' "$CONFIG_JSON" > config.json
+          python3 -c "import json; json.load(open('config.json', encoding='utf-8'))" || { echo "::error::CONFIG_JSON이 비었거나 올바른 JSON이 아님 — GitHub Settings > Secrets > Actions에서 PC의 config.json 전체를 다시 붙여넣을 것"; exit 1; }
+
+      - name: Google 인증 파일 생성
+        env:
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_CREDS_JSON" > credentials.json
+          python3 -c "import json; json.load(open('credentials.json', encoding='utf-8'))" || { echo "::error::GOOGLE_CREDS_JSON이 비었거나 올바른 JSON이 아님"; exit 1; }
+
+      - name: 월말 매매 결정 리허설
+        env:
+          GSHEET_CREDS_PATH: credentials.json
+        run: python -u slack_alert.py rehearsal
+
+      - name: 통합 매수 후보 리허설
+        run: python -u universe_scan.py rehearsal
+
+      - name: 실패 알림 (사용자 채널)
+        if: failure()
+        run: python3 notify_failure.py

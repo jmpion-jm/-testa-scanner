@@ -87,7 +87,10 @@ run_src = src.split('def run(')[1]
 guard = run_src.index('[안전장치] 로컬 실행')
 check('안전장치가 스캔·전송보다 앞', guard < run_src.index('scan_all()') and guard < run_src.index('send_slack('))
 check('monthly 강제는 월말 확정 필요', "elif mode == 'monthly' and not is_monthend" in run_src)
-check('트래커 기록은 진짜 월말만', "if is_monthend and mode != 'test'" in run_src)
+check('트래커 기록은 진짜 월말만 (test·리허설 제외)', "if is_monthend and mode not in ('test', 'rehearsal')" in run_src)
+# 리허설(2026-11-01)은 사용자 채널에만, 요약만 — 공유 채널·종목 목록 전송 없음
+reh = run_src.split("if mode == 'rehearsal':")[1].split('\n    sent = False')[0]
+check('리허설은 사용자 채널에만', 'url=WEBHOOK_URL)' in reh and 'WEBHOOK_URL_SHARE' not in reh and 'WEBHOOK_URL_PENSION' not in reh)
 
 # 10) ETF는 월봉 규칙 미적용(2026-09-30 결정) — 분류와 관찰용 알림(매매 지시 문구 없음)
 check('ETF 분류', sa._is_etf({'ticker': '449450.KS', 'name': 'PLUS K방산'})

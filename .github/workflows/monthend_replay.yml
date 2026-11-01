@@ -1,0 +1,98 @@
+name: 월말 알림 복구 재전송 (지난 월말을 그 달 종가 기준으로 다시 보냄)
+
+# 2026-11-01: 10/31 월말 알림이 GitHub 설정 오류로 못 나갔는데, 월말 시간창(말일 마감 후 몇 시간)이 지나면
+# 다시 보낼 길이 없었다. 가장 최근에 끝난 달만 다시 보낼 수 있다(market_time.replay_month).
+# 실행: ops/replay_month.txt에 'YYYY-MM'을 적어 push하거나, Actions 화면에서 수동 실행(월 입력).
+on:
+  push:
+    branches: [main]
+    paths: ['ops/replay_month.txt']
+  workflow_dispatch:
+    inputs:
+      month:
+        description: '다시 보낼 달 (예: 2026-10) — 가장 최근에 끝난 달만 가능'
+        required: true
+
+permissions:
+  contents: write   # 검증기록(signal_log.json) 저장용
+
+concurrency:
+  group: monthend-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 최신 검증기록 받기
+        run: git pull -q --ff-only origin main || true
+
+      - name: 다시 보낼 달 정하기
+        env:
+          INPUT_MONTH: ${{ github.event.inputs.month }}
+        run: |
+          M="${INPUT_MONTH:-$(tr -d ' \r\n' < ops/replay_month.txt)}"
+          echo "$M" | grep -Eq '^[0-9]{4}-[0-9]{2}$' || { echo "::error::달 형식 오류: '$M' (예: 2026-10)"; exit 1; }
+          echo "REPLAY_MONTH=$M" >> "$GITHUB_ENV"
+          echo "다시 보낼 달: $M"
+
+      - name: Python 설정
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: 패키지 설치
+        run: pip install -r requirements.txt
+
+      - name: config.json 생성
+        env:
+          CONFIG_JSON: ${{ secrets.CONFIG_JSON }}
+        run: |
+          printf '%s' "$CONFIG_JSON" > config.json
+          python3 -c "import json; json.load(open('config.json', encoding='utf-8'))" || { echo "::error::CONFIG_JSON이 비었거나 올바른 JSON이 아님 — GitHub Settings > Secrets > Actions에서 PC의 config.json 전체를 다시 붙여넣을 것"; exit 1; }
+
+      - name: Google 인증 파일 생성
+        env:
+          GOOGLE_CREDS_JSON: ${{ secrets.GOOGLE_CREDS_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_CREDS_JSON" > credentials.json
+          python3 -c "import json; json.load(open('credentials.json', encoding='utf-8'))" || { echo "::error::GOOGLE_CREDS_JSON이 비었거나 올바른 JSON이 아님"; exit 1; }
+
+      - name: 월말 매매 결정 알림 다시 보내기
+        env:
+          GSHEET_CREDS_PATH: credentials.json
+        run: python -u slack_alert.py monthly
+
+      - name: 월말 매수 후보 통합 다시 보내기
+        run: python -u universe_scan.py slack
+
+      - name: 검증기록 저장 (signal_log.json)
+        if: always()
+        run: |
+          [ -f signal_log.json ] || { echo "기록 파일 없음 — 스킵"; exit 0; }
+          git diff --quiet -- signal_log.json && { echo "검증기록 변경 없음 — 스킵"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp signal_log.json "$RUNNER_TEMP/mine.json"
+          for i in 1 2 3; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+            python signal_tracker.py merge "$RUNNER_TEMP/mine.json"
+            git add signal_log.json
+            if git diff --cached --quiet; then echo "병합 후 변경 없음"; exit 0; fi
+            git commit -q -m "tracker log $(date -u +'%Y-%m-%d %H:%M') (replay)"
+            if git push -q origin HEAD:main; then echo "검증기록 push 성공"; exit 0; fi
+            echo "push 실패, 재시도 ($i/3)"; sleep 5
+          done
+          echo "::error::signal_log.json 저장 3회 실패"
+          exit 1
+
+      - name: 실패 알림 (사용자 채널)
+        if: failure()
+        run: python3 notify_failure.py

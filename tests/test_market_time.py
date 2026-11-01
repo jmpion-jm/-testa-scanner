@@ -53,8 +53,49 @@ def main():
     else:
         print('PASS  수동/로컬 실행은 항상 진행')
 
-    print(f'\n{len(CASES) + 1 - fail}/{len(CASES) + 1} 통과')
-    sys.exit(1 if fail else 0)
+    n = len(CASES) + 1
+    n2, fail2 = replay_cases()
+    print(f'\n{n + n2 - fail - fail2}/{n + n2} 통과')
+    sys.exit(1 if fail or fail2 else 0)
+
+
+def replay_cases():
+    """복구 재전송(REPLAY_MONTH, 2026-11-01) — 지난 월말 알림을 그 달 종가 기준으로 다시 보낼 때."""
+    import pandas as pd
+    import monthly_data
+    results = []
+
+    def check(desc, ok):
+        results.append(ok)
+        print(f"{'PASS' if ok else 'FAIL'}  [재전송] {desc}")
+
+    for now, exp in [(utc(2026, 10, 30, 19), (2026, 9)), (utc(2026, 10, 30, 22), (2026, 10)),
+                     (utc(2026, 11, 1, 3), (2026, 10)), (utc(2026, 11, 20, 12), (2026, 10)),
+                     (utc(2026, 12, 1, 2), (2026, 11))]:
+        check(f'{now:%m/%d %H}시 UTC 기준 가장 최근 끝난 달 = {exp}', mt.latest_completed_month(now) == exp)
+
+    real = mt._real_now
+    mt._real_now = lambda: utc(2026, 11, 1, 3)
+    try:
+        os.environ.pop('REPLAY_MONTH', None)
+        check('REPLAY_MONTH 없으면 평소대로', mt.replay_month() is None)
+        os.environ['REPLAY_MONTH'] = '2026-10'
+        check('10월 재전송 → 10/30(금) 미국 마감 직후로 판정',
+              mt.utc_now() == utc(2026, 10, 30, 22) and mt.is_monthend_after_close())
+        idx = pd.date_range('2026-09-01', '2026-11-20', freq='B')
+        daily = pd.DataFrame({'Open': 1.0, 'High': 1.0, 'Low': 1.0, 'Close': 1.0, 'Volume': 1}, index=idx)
+        check('10월 재전송 중엔 11월 봉을 버림', monthly_data.to_monthly(daily).index[-1] == pd.Timestamp('2026-10-01'))
+        for bad in ('2026-09', '2026-11', 'abc'):
+            os.environ['REPLAY_MONTH'] = bad
+            try:
+                mt.replay_month()
+                check(f'{bad} 재전송 거부', False)
+            except ValueError:
+                check(f'{bad} 재전송 거부', True)
+    finally:
+        os.environ.pop('REPLAY_MONTH', None)
+        mt._real_now = real
+    return len(results), results.count(False)
 
 
 if __name__ == '__main__':

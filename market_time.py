@@ -21,8 +21,53 @@ from datetime import datetime, timedelta, timezone, date
 _REF_SHIFT = timedelta(hours=6)
 
 
-def utc_now() -> datetime:
+def _real_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def last_weekday(y: int, m: int) -> date:
+    d = date(y, m, calendar.monthrange(y, m)[1])
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return d
+
+
+def latest_completed_month(now: datetime = None) -> tuple:
+    """미국 말일 장 마감까지 끝난 가장 최근 달 (연, 월)."""
+    now = now or _real_now()
+    d = (now - _REF_SHIFT).date()
+    lw = last_weekday(d.year, d.month)
+    if d > lw or (d == lw and is_after_us_close(now)):
+        return d.year, d.month
+    prev = d.replace(day=1) - timedelta(days=1)
+    return prev.year, prev.month
+
+
+def replay_month():
+    """복구 재전송(2026-11-01): 환경변수 REPLAY_MONTH='YYYY-MM'이면 (연, 월), 아니면 None.
+    10/31 월말 알림이 GitHub 설정 오류로 못 나갔는데, 월말 시간창이 지나면 다시 보낼 길이 없었다.
+    가장 최근에 끝난 달만 허용 — 더 옛날 달을 다시 돌리면 검증기록(signal_log)이 엉뚱하게 청산·기록된다."""
+    v = os.environ.get('REPLAY_MONTH', '').strip()
+    if not v:
+        return None
+    try:
+        y, m = (int(x) for x in v.split('-'))
+        date(y, m, 1)
+    except Exception:
+        raise ValueError(f'REPLAY_MONTH 형식 오류: {v!r} (예: 2026-10)')
+    latest = latest_completed_month()
+    if (y, m) != latest:
+        raise ValueError(f'REPLAY_MONTH={v} — 다시 보낼 수 있는 달은 가장 최근 끝난 달({latest[0]}-{latest[1]:02d})뿐')
+    return y, m
+
+
+def utc_now() -> datetime:
+    """지금 시각. 복구 재전송(REPLAY_MONTH)이면 그 달 말일 미국장 마감 직후(UTC 22:00)로 본다."""
+    rm = replay_month()
+    if rm:
+        d = last_weekday(*rm)
+        return datetime(d.year, d.month, d.day, 22, 0, tzinfo=timezone.utc)
+    return _real_now()
 
 
 def us_ref_date(now: datetime = None) -> date:

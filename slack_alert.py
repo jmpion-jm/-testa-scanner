@@ -901,17 +901,23 @@ def build_weekly_alert(rows: list, etf_rows: list = None, port_rows: list = None
 # ── 2. 매달 말일 — 매매 결정 알림 ───────────────────────────
 def build_monthly_alert(rows: list, etf_rows: list = None, port_rows: list = None,
                         td: dict = None, with_checklist: bool = True) -> list:
+    import market_time as mt
     today_str = datetime.today().strftime('%Y.%m.%d')
-    ym = datetime.today().strftime('%Y년 %m월')
+    # 판정한 달로 표기(2026-11-01) — 예전엔 실행일 기준이라 실행이 밀려 다음 달로 넘어가면 "11월"로 찍혔다
+    ym = mt.us_ref_date(mt.utc_now()).strftime('%Y년 %m월')
+    replay = mt.replay_month()
     regime, bullish, total = topdown_regime(td) if td else ('⚪ 미확인', 0, 0)
     ratio  = int(bullish / total * 100) if total else 0
     fx = get_exchange_rate()
     fx_line = '\n' + build_exchange_rate_section(fx) if fx else ''
+    replay_line = (f'\n>🔁 *다시 보내는 알림* — 원래 월말 자동 알림이 실패해 늦게 보냅니다. '
+                   f'판정은 {mt.us_ref_date(mt.utc_now()):%m/%d} 종가 기준 그대로입니다.') if replay else ''
     blocks = [
         _header(f'{ym} 월봉 매매 결정  {today_str}  |  {regime}'),
         _section(
             '*월봉 10이평선 종가 확정 — 이달 매매 결정 알림*\n'
             '>✅ 이 알림 기준으로 매수/매도를 결정하세요.'
+            + replay_line
             + fx_line
         ),
         _divider(),
@@ -1159,6 +1165,8 @@ def run(mode: str = 'auto'):
           'weekly'  → 강제 주간 알림
           'monthly' → 강제 월말 알림
           'test'    → 두 알림 모두 콘솔 출력 (Slack 미전송)
+          'rehearsal' → 월말 리허설: 전 과정 실행 후 정상 여부 요약만 사용자 채널로 (매매 목록·검증기록 없음)
+    복구 재전송: 환경변수 REPLAY_MONTH='YYYY-MM' + 'monthly' → 지난 월말 알림을 그 달 종가 기준으로 다시 보냄
     """
     print(f'\n스캔 시작... ({datetime.now().strftime("%Y-%m-%d %H:%M")})')
 
@@ -1213,7 +1221,7 @@ def run(mode: str = 'auto'):
     # 기록(signal_log.json, #전략검증-트래커)에 영구히 남겼다(2026-09-28 사고: IONQ 등 10건
     # 오기록 + RTX/VRT/ADBE 오청산). is_monthend(진짜 미국장 마감 후 말일)만 보게 고쳐서,
     # mode를 뭘로 강제해도 진짜 월말이 아니면 트래커에는 아무것도 기록하지 않는다.
-    if is_monthend and mode != 'test':   # test 모드는 콘솔 미리보기 전용 — 월말이어도 기록하지 않음
+    if is_monthend and mode not in ('test', 'rehearsal'):   # test·리허설은 기록하지 않음
         try:
             import signal_tracker as tracker
             # 나스닥100·S&P500·이슈섹터 스캔이 기록한 신호는 아래 관심종목 rows에 없어서 청산 체크가 한 번도 안 됐다
@@ -1250,6 +1258,25 @@ def run(mode: str = 'auto'):
         _print_blocks(build_weekly_alert(rows, port_rows=port_stocks, td=td))
         print('\n[테스트] 연금계좌 ETF 주간 알림')
         _print_blocks(build_pension_observe_alert(etf_rows, port_pension, '주간'))
+        return
+
+    if mode == 'rehearsal':
+        # 월말 리허설(매월 25일, 2026-11-01): 10/11 GitHub 설정이 깨진 걸 10/31 월말 당일에야 알았다.
+        # 실제 GitHub 환경·설정으로 월말 전 과정을 미리 돌려 보고 결과 요약만 사용자 채널로 보낸다.
+        # 진행 중인 달 데이터라 매수·매도 목록은 보내지 않는다(미확정 — 매매 결정 아님).
+        n_blocks = len(build_monthly_alert(rows, port_rows=port_stocks, td=td))
+        ref = mt.us_ref_date(now)
+        lw = mt.last_weekday(ref.year, ref.month)
+        text = ('🧪 *월말 리허설 — 정상 작동* (매매 결정 아님)\n'
+                f'• GitHub 설정 읽기 ✅\n'
+                f'• 구글시트 보유종목 {len(holdings)}개 ' + ('✅' if holdings else '❌ 읽기 실패') + '\n'
+                f'• 관심종목 {len(rows)}개 스캔 ✅ · 월말 알림 {n_blocks}블록 생성 ✅\n'
+                f'_진짜 월말 알림은 미국 말일({lw:%m/%d}) 다음 날 아침 7시~정오 사이에 옵니다. 그때까지 안 오면 고장입니다._')
+        ok = send_slack([_section(text)], text='[월말 리허설] 정상 작동 확인', url=WEBHOOK_URL)
+        print(f'리허설 결과 전송: {"완료" if ok else "실패"}')
+        if not ok or not holdings:
+            print('::error::월말 리허설 실패 — ' + ('슬랙 전송 실패' if not ok else '구글시트 보유종목 읽기 실패'))
+            sys.exit(1)
         return
 
     sent = False

@@ -24,6 +24,10 @@ try:
 except Exception:
     WEBHOOK   = os.environ.get('SLACK_SP500_WEBHOOK_URL', '')
     MA_PERIOD = 10
+    # 2026-11-01: GitHub에서 설정을 못 읽으면 슬랙을 건너뛰고도 "성공"으로 끝나 고장이 2주간 안 보였다 → 실패 처리
+    if not WEBHOOK and os.environ.get('GITHUB_ACTIONS') == 'true':
+        print('::error::config.json을 읽지 못함 — 슬랙 전송 불가 (GitHub CONFIG_JSON 확인)')
+        sys.exit(1)
 
 # ── AI 관련 종목 판별 ────────────────────────────────────────
 _AI_KEYWORDS = [
