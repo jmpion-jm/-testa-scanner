@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-01",
+  "updated": "2026-11-01",
   "signals": [
     {
       "id": "1c631418",
@@ -138,11 +138,11 @@
       "ma10": 1.88,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 1.68,
+      "return_pct": -22.58,
+      "exit_reason": "MA10이탈",
       "peak_price": 2.23
     },
     {
@@ -251,7 +251,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 287.48
+      "peak_price": 293.84
     },
     {
       "id": "dc4bdc51",
@@ -300,11 +300,11 @@
       "ma10": 95.07,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 88.05,
+      "return_pct": -14.61,
+      "exit_reason": "MA10이탈",
       "peak_price": 113.65
     },
     {
@@ -323,7 +323,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 214.06
+      "peak_price": 235.52
     },
     {
       "id": "83dc3cd6",
@@ -359,7 +359,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 137.35
+      "peak_price": 154.03
     },
     {
       "id": "d1da08a0",
@@ -395,7 +395,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 313.55
+      "peak_price": 329.57
     },
     {
       "id": "4ae275ef",
@@ -431,7 +431,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 94.3
+      "peak_price": 96.84
     },
     {
       "id": "d13580cf",
@@ -521,7 +521,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 599.86
+      "peak_price": 638.01
     },
     {
       "id": "a2a9dcff",
@@ -575,7 +575,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 491.24
+      "peak_price": 491.53
     },
     {
       "id": "010143b6",
@@ -611,7 +611,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 61.78
+      "peak_price": 64.0
     },
     {
       "id": "7652b753",
@@ -683,7 +683,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 305.77
+      "peak_price": 307.21
     },
     {
       "id": "5507bcf8",
@@ -773,7 +773,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 198.39
+      "peak_price": 228.79
     },
     {
       "id": "41d5ca19",
@@ -827,7 +827,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 152.67
+      "peak_price": 170.68
     },
     {
       "id": "c2cdb2e8",
@@ -845,7 +845,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 104.47
+      "peak_price": 117.24
     },
     {
       "id": "2b49c02b",
@@ -966,11 +966,11 @@
       "ma10": 107.91,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 106.61,
+      "return_pct": -19.41,
+      "exit_reason": "MA10이탈",
       "peak_price": 132.29
     },
     {
@@ -1007,7 +1007,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 28.81
+      "peak_price": 30.52
     },
     {
       "id": "f5b8707c",
@@ -1092,11 +1092,11 @@
       "ma10": 120.69,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 105.12,
+      "return_pct": -24.06,
+      "exit_reason": "MA10이탈",
       "peak_price": 147.99
     },
     {
@@ -1223,7 +1223,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 108.59
+      "peak_price": 110.94
     },
     {
       "id": "154e7ba5",
@@ -1272,11 +1272,11 @@
       "ma10": 144.78,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 123.31,
+      "return_pct": -17.23,
+      "exit_reason": "MA10이탈",
       "peak_price": 168.46
     },
     {
@@ -1308,11 +1308,11 @@
       "ma10": 53.24,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 51.42,
+      "return_pct": -10.91,
+      "exit_reason": "MA10이탈",
       "peak_price": 59.03
     },
     {
@@ -1349,7 +1349,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 152.9
+      "peak_price": 157.49
     },
     {
       "id": "69da7862",
@@ -1619,7 +1619,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 226.11
+      "peak_price": 232.23
     },
     {
       "id": "610fa8f3",
@@ -1673,7 +1673,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 103.86
+      "peak_price": 109.23
     },
     {
       "id": "462e9344",
@@ -1745,7 +1745,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 210.18
+      "peak_price": 237.83
     },
     {
       "id": "b8ac8993",
@@ -1776,11 +1776,11 @@
       "ma10": 253.02,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 258.7,
+      "return_pct": -27.33,
+      "exit_reason": "MA10이탈",
       "peak_price": 355.97
     },
     {
@@ -1794,11 +1794,11 @@
       "ma10": 279.81,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 210.32,
+      "return_pct": -26.92,
+      "exit_reason": "MA10이탈",
       "peak_price": 287.81
     },
     {
@@ -1817,7 +1817,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 28.34
+      "peak_price": 32.76
     },
     {
       "id": "a5ec95ff",
@@ -1835,7 +1835,7 @@
       "exit_price": null,
       "return_pct": null,
       "exit_reason": null,
-      "peak_price": 396.71
+      "peak_price": 417.11
     },
     {
       "id": "20491cb9",
@@ -1848,11 +1848,11 @@
       "ma10": 29.49,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 29.52,
+      "return_pct": -16.44,
+      "exit_reason": "MA10이탈",
       "peak_price": 35.33
     },
     {
@@ -1866,11 +1866,11 @@
       "ma10": 340.85,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 279.84,
+      "return_pct": -18.67,
+      "exit_reason": "MA10이탈",
       "peak_price": 344.08
     },
     {
@@ -1884,11 +1884,11 @@
       "ma10": 389.42,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 369.97,
+      "return_pct": -13.9,
+      "exit_reason": "MA10이탈",
       "peak_price": 429.71
     },
     {
@@ -1902,11 +1902,11 @@
       "ma10": 339.13,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 278.22,
+      "return_pct": -18.35,
+      "exit_reason": "MA10이탈",
       "peak_price": 340.74
     },
     {
@@ -1920,11 +1920,11 @@
       "ma10": 624.92,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 614.99,
+      "return_pct": -15.19,
+      "exit_reason": "MA10이탈",
       "peak_price": 725.18
     },
     {
@@ -1938,11 +1938,11 @@
       "ma10": 77.67,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 77.34,
+      "return_pct": -0.55,
+      "exit_reason": "MA10이탈",
       "peak_price": 77.77
     },
     {
@@ -1956,11 +1956,11 @@
       "ma10": 134.67,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 130.51,
+      "return_pct": -14.75,
+      "exit_reason": "MA10이탈",
       "peak_price": 153.09
     },
     {
@@ -1974,11 +1974,11 @@
       "ma10": 181.51,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 143.54,
+      "return_pct": -23.0,
+      "exit_reason": "MA10이탈",
       "peak_price": 186.41
     },
     {
@@ -1992,11 +1992,11 @@
       "ma10": 109.36,
       "stop": null,
       "target": null,
-      "status": "open",
-      "exit_date": null,
-      "exit_price": null,
-      "return_pct": null,
-      "exit_reason": null,
+      "status": "loss",
+      "exit_date": "2026-10-31",
+      "exit_price": 104.24,
+      "return_pct": -6.05,
+      "exit_reason": "MA10이탈",
       "peak_price": 110.95
     },
     {
@@ -2016,6 +2016,204 @@
       "return_pct": null,
       "exit_reason": null,
       "peak_price": 4.13
+    },
+    {
+      "id": "a92309dd",
+      "date": "2026-11-01",
+      "ticker": "APH",
+      "name": "암페놀",
+      "strategy": "월봉MA10 지지(원서)",
+      "signal_type": "buy",
+      "entry_price": 79.3,
+      "ma10": 76.59,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 79.3
+    },
+    {
+      "id": "95513c9a",
+      "date": "2026-11-01",
+      "ticker": "TDY",
+      "name": "텔레다인테크",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 658.23,
+      "ma10": 637.25,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 658.23
+    },
+    {
+      "id": "362ad4fc",
+      "date": "2026-11-01",
+      "ticker": "LITE",
+      "name": "루멘텀홀딩스",
+      "strategy": "월봉MA10 지지(원서)",
+      "signal_type": "buy",
+      "entry_price": 840.7,
+      "ma10": 785.15,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 840.7
+    },
+    {
+      "id": "5c1ebcd3",
+      "date": "2026-11-01",
+      "ticker": "RTX",
+      "name": "RTX",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 199.8,
+      "ma10": 194.2,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 199.8
+    },
+    {
+      "id": "4fe0ab76",
+      "date": "2026-11-01",
+      "ticker": "LDOS",
+      "name": "레이도스(랜드)",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 142.98,
+      "ma10": 141.21,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 142.98
+    },
+    {
+      "id": "5e73fab5",
+      "date": "2026-11-01",
+      "ticker": "LIN",
+      "name": "린데",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 514.24,
+      "ma10": 491.15,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 514.24
+    },
+    {
+      "id": "dba62835",
+      "date": "2026-11-01",
+      "ticker": "TSLA",
+      "name": "테슬라",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 399.81,
+      "ma10": 387.65,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 399.81
+    },
+    {
+      "id": "40e5ad8d",
+      "date": "2026-11-01",
+      "ticker": "OII",
+      "name": "오세아니어링",
+      "strategy": "월봉MA10 지지(원서)",
+      "signal_type": "buy",
+      "entry_price": 40.86,
+      "ma10": 40.24,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 40.86
+    },
+    {
+      "id": "973f5875",
+      "date": "2026-11-01",
+      "ticker": "FTI",
+      "name": "테크닙FMC",
+      "strategy": "월봉MA10 지지(원서)",
+      "signal_type": "buy",
+      "entry_price": 68.77,
+      "ma10": 68.74,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 68.77
+    },
+    {
+      "id": "d917cb70",
+      "date": "2026-11-01",
+      "ticker": "VISN",
+      "name": "VISN(구CommScope)",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 6.54,
+      "ma10": 6.22,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 6.54
+    },
+    {
+      "id": "0174a2a7",
+      "date": "2026-11-01",
+      "ticker": "TEL",
+      "name": "TE Connectivity",
+      "strategy": "월봉MA10 돌파(원서)",
+      "signal_type": "buy",
+      "entry_price": 213.03,
+      "ma10": 211.38,
+      "stop": null,
+      "target": null,
+      "status": "open",
+      "exit_date": null,
+      "exit_price": null,
+      "return_pct": null,
+      "exit_reason": null,
+      "peak_price": 213.03
     }
   ]
 }
