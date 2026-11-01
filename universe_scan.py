@@ -143,8 +143,7 @@ def scan() -> tuple:
 
 
 def message(out, err, month, n, sells=None) -> str:
-    """sells(매도 신호)는 지인 공유 채널용(2026-11-01 사용자: 공유자는 매수·매도를 보고 스스로 선택,
-    사용자 채널은 지금처럼) — None이면 예전 그대로."""
+    """sells = 매도 신호(2026-11-01 사용자: 매수·매도를 같이 보고 선택) — None이면 매수만."""
     cnt = {k: sum(1 for c in out if c['tier'] == k) for k in (1, 2, 3)}
     L = [f'*월말 매수 후보 — 나스닥100·S&P500·김학주 통합* ({month}말 확정)',
          f'_{n}종목 중 원서 매수 신호 {len(out)}종목 · 1군 {cnt[1]} / 2군 {cnt[2]} / 3군 {cnt[3]}'
@@ -220,8 +219,8 @@ if __name__ == '__main__':
         print('말일 미국장 마감 후가 아니라 스킵 (market_time.should_run_monthly_scan)')
         sys.exit(0)
     out, sells, err, month, n = scan()
-    text = message(out, err, month, n)                     # 사용자 채널 — 예전 그대로
-    text_share = message(out, err, month, n, sells=sells)  # 공유 채널 — 매수 + 매도
+    # 사용자·공유 채널 모두 매수 + 매도(2026-11-01 사용자: "나도 공유 채널과 같이 받고 선택은 대화로")
+    text = text_share = message(out, err, month, n, sells=sells)
     print(text_share)
     if mode == 'rehearsal':
         # 월말 리허설(매월 25일, 2026-11-01) — 정상 여부 요약만 사용자 채널로. 종목 목록은 보내지 않는다(매매 결정 아님)
