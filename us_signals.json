@@ -1,35 +1,23 @@
 {
-  "date": "2026-10-09",
+  "date": "2026-11-06",
   "signals": [
     {
-      "ticker": "COHR",
-      "name": "코히런트",
-      "pct": 5.0,
+      "ticker": "AMD",
+      "name": "AMD",
+      "pct": 4.3,
       "signal": "지지"
     },
     {
-      "ticker": "AAOI",
-      "name": "어플라이드옵토",
-      "pct": 1.2,
-      "signal": "돌파"
-    },
-    {
-      "ticker": "FTI",
-      "name": "테크닙FMC",
-      "pct": 1.7,
+      "ticker": "PLTR",
+      "name": "팔란티어",
+      "pct": 5.4,
       "signal": "지지"
     },
     {
-      "ticker": "GOOGL",
-      "name": "알파벳",
-      "pct": 2.0,
+      "ticker": "ANET",
+      "name": "아리스타네트웍스",
+      "pct": 2.4,
       "signal": "지지"
-    },
-    {
-      "ticker": "TEL",
-      "name": "TE Connectivity",
-      "pct": 1.5,
-      "signal": "돌파"
     }
   ]
 }
