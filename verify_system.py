@@ -266,8 +266,10 @@ def check_price_anomalies():
                 continue
             chg = (float(close.iloc[-1]) - float(close.iloc[-2])) / float(close.iloc[-2]) * 100
             if chg <= -30:
+                # 실제 시장 급락(예: 2026-11 LITE 인수 발표 −36%)은 시스템 고장이 아님 — 오류로 두면
+                # "⚠️ 자동 실행 실패"가 떠서 진짜 고장 알림과 섞인다. 데이터 없음·조회 실패만 고장으로 본다.
                 anomalies.append(f'{ticker}({name}): {chg:+.1f}%')
-                err(f'{ticker} ({name}): 전월 대비 {chg:+.1f}% — 이상 하락 확인 필요')
+                warn(f'{ticker} ({name}): 전월 대비 {chg:+.1f}% — 급락(시장), 데이터 확인')
             elif chg <= -15:
                 warn(f'{ticker} ({name}): 전월 대비 {chg:+.1f}% — 주의')
         except Exception:
@@ -326,7 +328,13 @@ def check_workflow_runs():
             continue
 
         failed = [r for r in recent if r.get('conclusion') == 'failure']
-        if failed:
+        # API는 최신 실행부터 준다. 마지막으로 끝난 실행이 성공이면 이미 복구된 과거 실패 —
+        # 오류로 두면 고친 고장(2026-10 CONFIG_JSON)을 35일 내내 ⚠️로 알려 진짜 고장을 묻어 버림(2026-11-07)
+        last_done = next((r for r in recent if r.get('conclusion')), None)
+        if failed and last_done and last_done.get('conclusion') == 'success':
+            warn(f'{wf}: 최근 {window_days}일간 {len(failed)}건 실패했으나 마지막 실행'
+                 f'({last_done["created_at"][:10]})은 성공 — 복구됨')
+        elif failed:
             err(f'{wf}: 최근 {window_days}일간 {len(failed)}건 실패 (총 {len(recent)}건 중) — Actions 로그 확인 필요')
         else:
             ok(f'{wf}: 최근 {len(recent)}건 전부 성공')
@@ -364,7 +372,7 @@ def send_verification_report():
                                 "text": f"*❌ 오류 ({len(errors)}건)*\n{error_text}"}})
 
     if warnings_list:
-        warn_text = '\n'.join(f'• {w}' for w in warnings_list[:10])
+        warn_text = '\n'.join(f'• {w}' for w in warnings_list[:25])
         blocks.append({"type": "section",
                        "text": {"type": "mrkdwn",
                                 "text": f"*⚠️ 경고 ({len(warnings_list)}건)*\n{warn_text}"}})
@@ -420,6 +428,11 @@ if __name__ == '__main__':
 
     # 실제 오류가 있으면 Actions 실행 자체를 failure로 표시 — 슬랙만 보지 않고
     # Actions 탭만 훑어봐도 "success인데 사실 문제 있음" 상태가 나오지 않게 함
+    # 로그 원문은 로그인 없이 못 본다(403) — 항목별 주석으로 남겨 공개 API로 원인을 확인할 수 있게(2026-11-07)
+    for e in errors:
+        print(f'::error::{e}')
+    for w in warnings_list:
+        print(f'::warning::{w}')
     if errors:
         print(f'::error::검증 오류 {len(errors)}건 발견 — 위 목록 확인 필요')
         sys.exit(1)

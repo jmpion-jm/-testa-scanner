@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '0 8 * * 1'   # 매주 월요일 UTC 08:00 = KST 17:00
   workflow_dispatch:       # 수동 실행 가능
+  push:                    # 2026-11-07: 고친 뒤 바로 GitHub에서 확인 — ops/verify_request.txt를 바꿔 push하면 실행
+    paths: ['ops/verify_request.txt']
 
 jobs:
   verify:
