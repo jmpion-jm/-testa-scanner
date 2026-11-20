@@ -1,64 +1,28 @@
 {
-  "date": "2026-11-13",
+  "date": "2026-11-20",
   "signals": [
     {
       "ticker": "AMD",
       "name": "AMD",
-      "pct": 20.8,
-      "signal": "지지"
-    },
-    {
-      "ticker": "APH",
-      "name": "암페놀",
-      "pct": 0.8,
-      "signal": "지지"
-    },
-    {
-      "ticker": "TDY",
-      "name": "텔레다인테크",
-      "pct": 0.8,
+      "pct": 2.1,
       "signal": "지지"
     },
     {
       "ticker": "RTX",
       "name": "RTX",
-      "pct": 1.8,
+      "pct": 0.4,
       "signal": "지지"
     },
     {
-      "ticker": "ATI",
-      "name": "ATI",
-      "pct": 4.7,
-      "signal": "돌파"
-    },
-    {
-      "ticker": "TSLA",
-      "name": "테슬라",
-      "pct": 1.4,
-      "signal": "지지"
-    },
-    {
-      "ticker": "PLTR",
-      "name": "팔란티어",
-      "pct": 9.0,
-      "signal": "지지"
-    },
-    {
-      "ticker": "ADI",
-      "name": "아날로그디바이스",
-      "pct": 4.0,
+      "ticker": "SHOP",
+      "name": "쇼피파이",
+      "pct": 0.5,
       "signal": "지지"
     },
     {
       "ticker": "ANET",
       "name": "아리스타네트웍스",
-      "pct": 17.5,
-      "signal": "지지"
-    },
-    {
-      "ticker": "TEL",
-      "name": "TE Connectivity",
-      "pct": 2.1,
+      "pct": 1.8,
       "signal": "지지"
     }
   ]
