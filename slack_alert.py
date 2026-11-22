@@ -793,7 +793,9 @@ def build_etf_section(etf_rows: list, is_monthly: bool) -> list:
 # 지수 ETF는 원서 캔들 신호보다 "월말 종가가 10이평 위면 보유, 아래면 현금"이 수익이 높았다
 # (장투_vs_월봉규칙_비교기록.md §6, TIGER 미국나스닥100 ETF 자체 원화 월봉 기준 §6 추가 비교).
 # M7 ETF는 같은 날 사용자 요청으로 추가 — 단, 상장 3년 시뮬레이션에서 단순 10이평이 장투보다 크게 낮았음(연 +6.6% 대 +32.4%)
-PENSION_INDEXES = [('133690.KS', 'TIGER 미국나스닥100'), ('465580.KS', 'ACE 미국빅테크TOP7 Plus')]
+# S&P500은 같은 날 사용자 요청("나스닥100, S&P500 단순 10이평으로 알림줘") — 5년 구간 최악 −2%로 가장 안정적이었음
+PENSION_INDEXES = [('133690.KS', 'TIGER 미국나스닥100'), ('360750.KS', 'TIGER 미국S&P500'),
+                   ('465580.KS', 'ACE 미국빅테크TOP7 Plus')]
 
 
 def _simple_ma10_line(code: str, name: str, kind: str):
@@ -834,7 +836,7 @@ def pension_index_signal(kind: str):
         line, pct = _simple_ma10_line(code, name, kind)
         lines.append(line)
         pcts[name] = pct
-    text = ('*📈 연금 나스닥100·M7 — 단순 10이평* (2026-11-22 결정, 원서 캔들 조건 없이 월말 종가만)\n'
+    text = ('*📈 연금 나스닥100·S&P500·M7 — 단순 10이평* (2026-11-22 결정, 원서 캔들 조건 없이 월말 종가만)\n'
             + '\n'.join(lines) +
             '\n_DC·IRP는 위험자산 70% 한도 안에서. 월중 등락에는 매매하지 않음._')
     return text, pcts
@@ -858,7 +860,7 @@ def build_pension_observe_alert(etf_rows: list, port_rows: list, kind: str) -> l
             blocks.insert(1, _section(sig_text))
     except Exception as e:
         print(f'연금 단순 10이평 신호 계산 실패: {e}')
-        blocks.insert(1, _section('⚠️ *연금 나스닥100·M7 단순 10이평 신호를 계산하지 못했습니다* — 증권 앱 월봉 10이평으로 직접 확인하세요.'))
+        blocks.insert(1, _section('⚠️ *연금 나스닥100·S&P500·M7 단순 10이평 신호를 계산하지 못했습니다* — 증권 앱 월봉 10이평으로 직접 확인하세요.'))
 
     def fact(r):
         if r.get('broke'):
