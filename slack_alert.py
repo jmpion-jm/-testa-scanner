@@ -792,27 +792,29 @@ def build_etf_section(etf_rows: list, is_monthly: bool) -> list:
 # ── 연금 나스닥100 — 단순 10이평 (2026-11-22 사용자 결정) ────────
 # 지수 ETF는 원서 캔들 신호보다 "월말 종가가 10이평 위면 보유, 아래면 현금"이 수익이 높았다
 # (장투_vs_월봉규칙_비교기록.md §6, TIGER 미국나스닥100 ETF 자체 원화 월봉 기준 §6 추가 비교).
-PENSION_INDEX = ('133690.KS', 'TIGER 미국나스닥100')
+# M7 ETF는 같은 날 사용자 요청으로 추가 — 단, 상장 3년 시뮬레이션에서 단순 10이평이 장투보다 크게 낮았음(연 +6.6% 대 +32.4%)
+PENSION_INDEXES = [('133690.KS', 'TIGER 미국나스닥100'), ('465580.KS', 'ACE 미국빅테크TOP7 Plus')]
 
 
-def pension_index_signal(kind: str):
-    """(판단 문구 블록 텍스트, 10이평 대비 %) — 월말은 기준 달 월말 종가로 결정, 주간은 진행 중인 달 현재가(결정 아님)."""
+def _simple_ma10_line(code: str, name: str, kind: str):
+    """(한 줄 텍스트, 10이평 대비 %) — 월말은 기준 달 월말 종가로 결정, 주간은 진행 중인 달 현재가(결정 아님)."""
     import market_time as mt
-    code, name = PENSION_INDEX
     df = monthly_data.history(code, '3y')
     if df is None or df.empty:
-        return None, None
+        return f'`{name}` ⚠️ 시세를 받지 못함 — 증권 앱 월봉으로 직접 확인', None
     c = df['Close'].dropna()
     ma = c.rolling(10).mean()
-    ref = pd.Period(mt.us_ref_date(mt.utc_now()), 'M')
     per = c.index.to_period('M')
     if kind == '월말':   # 한국장은 다음 달 첫 거래일 아침에 이미 열 수 있다 → 기준 달 봉을 직접 고른다
+        ref = pd.Period(mt.us_ref_date(mt.utc_now()), 'M')
         idx = [i for i, p in enumerate(per) if p == ref]
         if not idx:
-            return None, None
+            return f'`{name}` ⚠️ {ref} 월봉이 없음 — 직접 확인', None
         k = idx[-1]
     else:
         k = len(c) - 1
+    if pd.isna(ma.iat[k]):
+        return f'`{name}` ⚠️ 10이평 계산 불가(데이터 부족)', None
     close, mav = float(c.iat[k]), float(ma.iat[k])
     pct = (close / mav - 1) * 100
     above = close > mav
@@ -822,10 +824,20 @@ def pension_index_signal(kind: str):
     else:
         act = '진행 중 — 판단은 월말 종가로만' + (' (지금은 10이평 위)' if above else ' (지금은 10이평 아래)')
         when = '이번 달 현재가'
-    text = (f'*📈 연금 나스닥100 — 단순 10이평* (2026-11-22 결정, 원서 캔들 조건 없이 월말 종가만)\n'
-            f'`{name}` {when} *{close:,.0f}원* · 10이평 {mav:,.0f}원 · *{pct:+.1f}%* → {act}\n'
-            f'_DC·IRP는 위험자산 70% 한도 안에서. 월중 등락에는 매매하지 않음._')
-    return text, pct
+    return f'`{name}` {when} *{close:,.0f}원* · 10이평 {mav:,.0f}원 · *{pct:+.1f}%* → {act}', pct
+
+
+def pension_index_signal(kind: str):
+    """(블록 텍스트, {종목명: 10이평 대비 %}) — 연금 나스닥100·M7 ETF 단순 10이평."""
+    lines, pcts = [], {}
+    for code, name in PENSION_INDEXES:
+        line, pct = _simple_ma10_line(code, name, kind)
+        lines.append(line)
+        pcts[name] = pct
+    text = ('*📈 연금 나스닥100·M7 — 단순 10이평* (2026-11-22 결정, 원서 캔들 조건 없이 월말 종가만)\n'
+            + '\n'.join(lines) +
+            '\n_DC·IRP는 위험자산 70% 한도 안에서. 월중 등락에는 매매하지 않음._')
+    return text, pcts
 
 
 # ── 연금계좌 ETF — 관찰용 (2026-09-30 사용자 결정) ────────────
@@ -845,8 +857,8 @@ def build_pension_observe_alert(etf_rows: list, port_rows: list, kind: str) -> l
         if sig_text:
             blocks.insert(1, _section(sig_text))
     except Exception as e:
-        print(f'연금 나스닥100 신호 계산 실패: {e}')
-        blocks.insert(1, _section('⚠️ *연금 나스닥100 단순 10이평 신호를 계산하지 못했습니다* — 증권 앱 월봉 10이평으로 직접 확인하세요.'))
+        print(f'연금 단순 10이평 신호 계산 실패: {e}')
+        blocks.insert(1, _section('⚠️ *연금 나스닥100·M7 단순 10이평 신호를 계산하지 못했습니다* — 증권 앱 월봉 10이평으로 직접 확인하세요.'))
 
     def fact(r):
         if r.get('broke'):
@@ -1314,11 +1326,13 @@ def run(mode: str = 'auto'):
         ref = mt.us_ref_date(now)
         lw = mt.last_weekday(ref.year, ref.month)
         try:
-            _, idx_pct = pension_index_signal('주간')
+            _, idx_pcts = pension_index_signal('주간')
         except Exception as e:
-            print(f'연금 나스닥100 신호 계산 실패: {e}'); idx_pct = None
-        idx_line = (f'• 연금 나스닥100 단순 10이평 신호 계산 ✅ (지금 10이평 대비 {idx_pct:+.1f}%, 판단은 월말 종가)\n'
-                    if idx_pct is not None else '• 연금 나스닥100 단순 10이평 신호 ❌ 계산 실패\n')
+            print(f'연금 단순 10이평 신호 계산 실패: {e}'); idx_pcts = {}
+        ok_all = bool(idx_pcts) and all(v is not None for v in idx_pcts.values())
+        idx_line = ('• 연금 단순 10이평 신호 계산 ' + ('✅' if ok_all else '❌ 일부 실패') + ' ('
+                    + ', '.join(f'{n} ' + (f'{v:+.1f}%' if v is not None else '실패') for n, v in idx_pcts.items())
+                    + ', 판단은 월말 종가)\n')
         text = ('🧪 *월말 리허설 — 정상 작동* (매매 결정 아님)\n'
                 f'• GitHub 설정 읽기 ✅\n'
                 f'• 구글시트 보유종목 {len(holdings)}개 ' + ('✅' if holdings else '❌ 읽기 실패') + '\n'
