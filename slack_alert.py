@@ -789,6 +789,45 @@ def build_etf_section(etf_rows: list, is_monthly: bool) -> list:
     return blocks
 
 
+# ── 연금 나스닥100 — 단순 10이평 (2026-11-22 사용자 결정) ────────
+# 지수 ETF는 원서 캔들 신호보다 "월말 종가가 10이평 위면 보유, 아래면 현금"이 수익이 높았다
+# (장투_vs_월봉규칙_비교기록.md §6, TIGER 미국나스닥100 ETF 자체 원화 월봉 기준 §6 추가 비교).
+PENSION_INDEX = ('133690.KS', 'TIGER 미국나스닥100')
+
+
+def pension_index_signal(kind: str):
+    """(판단 문구 블록 텍스트, 10이평 대비 %) — 월말은 기준 달 월말 종가로 결정, 주간은 진행 중인 달 현재가(결정 아님)."""
+    import market_time as mt
+    code, name = PENSION_INDEX
+    df = monthly_data.history(code, '3y')
+    if df is None or df.empty:
+        return None, None
+    c = df['Close'].dropna()
+    ma = c.rolling(10).mean()
+    ref = pd.Period(mt.us_ref_date(mt.utc_now()), 'M')
+    per = c.index.to_period('M')
+    if kind == '월말':   # 한국장은 다음 달 첫 거래일 아침에 이미 열 수 있다 → 기준 달 봉을 직접 고른다
+        idx = [i for i, p in enumerate(per) if p == ref]
+        if not idx:
+            return None, None
+        k = idx[-1]
+    else:
+        k = len(c) - 1
+    close, mav = float(c.iat[k]), float(ma.iat[k])
+    pct = (close / mav - 1) * 100
+    above = close > mav
+    if kind == '월말':
+        act = '*보유 / 매수* (다음 거래일)' if above else '*쉬기* — 팔고 CD금리 등 안전자산 (다음 거래일)'
+        when = f'{per[k].strftime("%Y-%m")}월말 종가'
+    else:
+        act = '진행 중 — 판단은 월말 종가로만' + (' (지금은 10이평 위)' if above else ' (지금은 10이평 아래)')
+        when = '이번 달 현재가'
+    text = (f'*📈 연금 나스닥100 — 단순 10이평* (2026-11-22 결정, 원서 캔들 조건 없이 월말 종가만)\n'
+            f'`{name}` {when} *{close:,.0f}원* · 10이평 {mav:,.0f}원 · *{pct:+.1f}%* → {act}\n'
+            f'_DC·IRP는 위험자산 70% 한도 안에서. 월중 등락에는 매매하지 않음._')
+    return text, pct
+
+
 # ── 연금계좌 ETF — 관찰용 (2026-09-30 사용자 결정) ────────────
 def build_pension_observe_alert(etf_rows: list, port_rows: list, kind: str) -> list:
     """연금계좌(DC/IRP/연금) ETF는 아직 월봉 규칙을 적용하지 않는다 — 사용자: "ETF는 개별종목 차트와 성격이 달라
@@ -801,6 +840,13 @@ def build_pension_observe_alert(etf_rows: list, port_rows: list, kind: str) -> l
                  '>ETF(연금계좌·일반계좌 모두)는 아직 월봉 10이평 규칙을 적용하지 않습니다(2026-09-30 결정: 개별종목에서 먼저 확인 후 확장).\n'
                  '>아래는 ' + ('이번 달 월말 종가' if kind == '월말' else '진행 중인 이번 달 현재가') + ' 기준 10이평 위치입니다.'),
     ]
+    try:   # 예외: 나스닥100은 단순 10이평으로 운용(2026-11-22) — 이 블록만 매매 판단을 보여 준다
+        sig_text, _ = pension_index_signal(kind)
+        if sig_text:
+            blocks.insert(1, _section(sig_text))
+    except Exception as e:
+        print(f'연금 나스닥100 신호 계산 실패: {e}')
+        blocks.insert(1, _section('⚠️ *연금 나스닥100 단순 10이평 신호를 계산하지 못했습니다* — 증권 앱 월봉 10이평으로 직접 확인하세요.'))
 
     def fact(r):
         if r.get('broke'):
@@ -1267,10 +1313,17 @@ def run(mode: str = 'auto'):
         n_blocks = len(build_monthly_alert(rows, port_rows=port_stocks, td=td))
         ref = mt.us_ref_date(now)
         lw = mt.last_weekday(ref.year, ref.month)
+        try:
+            _, idx_pct = pension_index_signal('주간')
+        except Exception as e:
+            print(f'연금 나스닥100 신호 계산 실패: {e}'); idx_pct = None
+        idx_line = (f'• 연금 나스닥100 단순 10이평 신호 계산 ✅ (지금 10이평 대비 {idx_pct:+.1f}%, 판단은 월말 종가)\n'
+                    if idx_pct is not None else '• 연금 나스닥100 단순 10이평 신호 ❌ 계산 실패\n')
         text = ('🧪 *월말 리허설 — 정상 작동* (매매 결정 아님)\n'
                 f'• GitHub 설정 읽기 ✅\n'
                 f'• 구글시트 보유종목 {len(holdings)}개 ' + ('✅' if holdings else '❌ 읽기 실패') + '\n'
                 f'• 관심종목 {len(rows)}개 스캔 ✅ · 월말 알림 {n_blocks}블록 생성 ✅\n'
+                + idx_line +
                 f'_진짜 월말 알림은 미국 말일({lw:%m/%d}) 다음 날 아침 7시~정오 사이에 옵니다. 그때까지 안 오면 고장입니다._')
         ok = send_slack([_section(text)], text='[월말 리허설] 정상 작동 확인', url=WEBHOOK_URL)
         print(f'리허설 결과 전송: {"완료" if ok else "실패"}')
